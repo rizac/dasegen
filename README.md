@@ -24,7 +24,7 @@ This package can be downloaded and modified for generating datasets of processed
 
    - Install required packages:
      ```
-     pip install --upgrade pip setuptools && pip install obspy pandas pyyaml
+     pip install --upgrade pip setuptools && pip install obspy pandas pyyaml tqdm
      ```
 
 # Implementation
