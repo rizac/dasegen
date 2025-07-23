@@ -22,33 +22,45 @@ This package can be downloaded and modified for generating datasets of processed
      source .env/bin/activate
      ```
 
-   - Install required packages:
+   - Install required packages (add any package of your choice if needed):
      ```
      pip install --upgrade pip setuptools && pip install obspy pandas pyyaml tqdm
      ```
 
 # Implementation
 
-Create a destination directory where your processed time histories are, say `<DEST>`.
 
-Copy `template.py` and `metadata_fields.yml` in `<DEST>`.
+1. Copy `create_dataset.py` as well as `metadata_fields.yml` in a empty directory
+   
+2. Edit (rename) your source metadata file (CSV format) to match the field names in `metadata_fields.yml`.
+   You can also start from `metadata_template.csv` as empty template, leaving empty cells if
+   data is N/A or missing, or you plan to fill it inside `create_dataset.py` 
 
-Modify `template.py` (set your Metadata path, and how to read time historeis in the Python file, as well as how to process them, if needed).
+3. Edit `create_dataset.py`
 
-**Activate Python virtual environment** and within `DEST`, run:
+   3a. Set the path of the source metadata file (variable `source_metadata_path`)
 
+   3b. Implement how to read time histories from the metadata file rows
+       (functions `get_waveforms_path` and `read_waveform`)
+
+   3c. Implement how to process time histories and potentially modify the associated CSV row
+       (function `process_waveforms`)
+
+4. Eventually, execute `create_dataset.py` file *on the terminal within the Python virtual environment*
+   (or Conda env):
+   ```
+   python3 create_dataset.py
+   ```
+   The file will scan all rows of your source metadata file, process them and put them in the
+   `waveforms` sub-directory of the root directory of `create_dataset.py`. A new metadata file `metadata.csv`
+   will be also created in the same directory
+
+
+<!--
+
+Generate `metadata_template.csv`. Modify `metadata_fields.yml` if needed, activate virtual environment and then
 ```
-python ./template.py
+python -c "import yaml, pandas as pd; _ = open('./metadata_fields.yml'); y=yaml.safe_load(_); _.close();pd.DataFrame(index=list(y.keys())).T.reset_index(drop=True).to_csv('./metadata_template.csv', index=False)"
 ```
 
-You should see `<DEST>/waveforms` being populated by your processed waveforms (end eventually, a new `<DEST>/metadata.csv` file created therein)
-
-
-
-
-Maintenance:
-
-Generate `metadata_template.csv`. Modify `metadata_fields.yml` and then
-```
-python -c "import yaml, pandas as pd; _ = open('./metadata_desc.yml'); y=yaml.safe_load(_); _.close();pd.DataFrame(index=list(y.keys()), data=[v['dtype'] for v in y.values()]).T.reset_index(drop=True).to_csv('./metadata_template.csv', index=False)"
-```
+-->
