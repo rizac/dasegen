@@ -54,7 +54,7 @@ from tqdm import tqdm
 # Editable file part: please read carefully and implement your routine #
 ########################################################################
 
-source_metadata_path:str = "path/to/my/source/metadata.csv"  # Your metadata CSV file:
+source_metadata_path:str = "path/to/my/source/metadata.csv"  # Your source metadata CSV file
 
 
 def get_waveforms_path(metadata_row: dict) -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -94,7 +94,7 @@ def get_waveforms_path(metadata_row: dict) -> tuple[Optional[str], Optional[str]
 
     # Return the files. We do a last check setting a path to None if it does not exist,
     # to signal the routine that the file should not be read. If you remove the line
-    # below, files must exist and the routine will break otherwise
+    # below, files must exist and the routine will break in case
     return (
         None if not isfile(files[0]) else files[0],
         None if not isfile(files[1]) else files[1],
