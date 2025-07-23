@@ -1,5 +1,5 @@
 """
-Template for the generation of a Time histories database. Steps for the generation:
+Template for the generation of a Time histories' database. Steps for the generation:
 1. Copy this file as well as metadata_fields in a empty directory.
    You can leave empty cells if data is N/A or missing.
 2. Edit this file:
@@ -13,15 +13,19 @@ Template for the generation of a Time histories database. Steps for the generati
    (will scan all rows of your source metadata, process them and put them in the
    `waveforms` sub-directory of this root directory, creating a new metadata file)
 """
+from __future__ import annotations
+
+from typing import Optional, Any, Tuple
 import os
-from os.path import abspath, join, basename, isdir, isfile
-from os import makedirs
+from os.path import abspath, join, basename, isdir, isfile, dirname
+import stat
+import yaml
 import csv
 import json
 import sys
 import fnmatch
 import obspy
-from obspy import Trace, read
+from obspy import Trace, Stream
 from datetime import datetime
 import pandas as pd
 import numpy as np
@@ -30,17 +34,22 @@ import glob
 from tqdm import tqdm
 
 
+########################################################################
+# Editable file part: please read carefully and implement your routine #
+########################################################################
+
 source_metadata_path:str = "path/to/my/source/metadata.csv"  # Your metadata CSV file:
 
 
-def get_waveforms_path(metadata_row: dict) -> tuple[str, str, str]:
+def get_waveforms_path(metadata_row: dict) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Get the full source paths of the waveforms (h1, h2 and v components, in this
     order) from the given metadata row `m_row`.
     Paths can be empty or None, meaning that the relative file is missing. This has to
-    be taken into account in `process_waveforms` in case (see below)
+    be taken into account in `process_waveforms` in case (see below). If files are not
+    missing, then the file must exist
 
-    :param metadata_row: dict corresponding to a row of your source metadata. Each dit
-        key represents a Field (or Column). Note that float, str, datetime and
+    :param metadata_row: dict corresponding to a row of your source metadata. Each dict
+        key represents a Metadata Field (Column). Note that float, str, datetime and
         categorical values can also be None (e.g., if the Metadata cell was empty)
     """
     # get the path stored in the metadata file (just an example):
@@ -48,19 +57,39 @@ def get_waveforms_path(metadata_row: dict) -> tuple[str, str, str]:
     h2_path = metadata_row['fpath_h2']
     v_path = metadata_row['fpath_v']
 
-    # find file? build path? Example:
-    full_paths = [
-        "?", # compose your source path of h1 maybe using h1_path?
-        "?", # compose your source path of h2, maybe using h2_path?
-        "?"  # compose your source path of v, maybe using v_path?
-    ]
-    return (read_waveform(_) for _ in full_paths)
+    # Example code (please MODIFY) given a source dir of raw time histories:
+    source_root_dir = "my/source/root"
+
+    # Option 1 (simple), simple concatenation of the source metadata fields:
+    files = (
+        join(source_root_dir, h1_path),
+        join(source_root_dir, h2_path),
+        join(source_root_dir, v_path)
+    )
+
+    # Option 2 (slightly more complex, files are nested inside source root dir):
+    files = ["", "", ""]
+    for idx, relative_path in [h1_path, h2_path, v_path]:
+        for dirpath, dirnames, filenames in os.walk(source_root_dir):
+            candidate = os.path.join(dirpath, relative_path)
+            if isfile(candidate):
+                files[idx] = os.path.abspath(candidate)
+                break
+
+    # Return the files. We do a last check setting a path to None if it does not exist,
+    # to signal the routine that the file should not be read. If you remove the line
+    # below, files must exist and the routine will break otherwise
+    return (
+        None if not isfile(files[0]) else files[0],
+        None if not isfile(files[1]) else files[1],
+        None if not isfile(files[2]) else files[2]
+    )
 
 
 def read_waveform(full_abs_path: str) -> Trace:
     """Read a waveform from a file path. Modify according to the format you stored
     your time histories"""
-    return obspy.read(full_path, format='KNET')[0]
+    return obspy.read(full_abs_path, format='KNET')[0]
 
 
 def process_waveforms(
@@ -69,8 +98,8 @@ def process_waveforms(
     """Process the waveform(s), returning the same argument modified according to your
     custom processing routine
 
-    :param metadata_row: dict corresponding to a row of your source metadata. Each dit
-        key represents a Field (or Column). Note that float, str, datetime and
+    :param metadata_row: dict corresponding to a row of your source metadata. Each dict
+        key represents a Metadata field (Column). Note that float, str, datetime and
         categorical values can also be None (e.g., if the Metadata cell was empty).
         You can modify this dict if you want, in case the modifications will be saved in
         the destination metadata file. Note however that any new key will not be saved
@@ -82,9 +111,9 @@ def process_waveforms(
     return metadata_row, h1, h2, v
 
 
-#########################################
-# The code below should not be customized
-#########################################
+###########################################
+# The code below should not be customized #
+###########################################
 
 
 def save_waveforms(root_path, record, h1, h2, v):
@@ -110,7 +139,7 @@ def _cast_dtype(val: Any, dtype:str):
     if dtype == 'float':
         assert val is None or isinstance(val, float)
     elif dtype == 'int':
-        assert isinstanve(val, int)
+        assert isinstance(val, int)
     elif dtype == 'bool':
         if val in {0, 1}:
             val = bool(val)
@@ -136,7 +165,7 @@ if __name__ == "__main__":
     if existing:
         res = input(
             f'Metadata file ({basename(dest_metadata_path)}) or waveforms dir '
-            f'({basename(dest_wavefrom_path)}) already exist in {dest_root_path}.\n'
+            f'({basename(dest_waveforms_path)}) already exist in {dest_root_path}.\n'
             f'If you type "y", Metadata file will be deleted and recreated, and '
             f'waveforms files potentially overwritten.\n'
             f'Proceed (y=yes, any key=no)?'
@@ -144,11 +173,11 @@ if __name__ == "__main__":
         if res != 'y':
             sys.exit(1)
 
-    if isifile(dest_metadata_path):
+    if isfile(dest_metadata_path):
         os.unlink(dest_metadata_path)
 
-    # sanitize the metadata
-    metadata_fields:dict = yaml.safe_load("./metadata_fields.yml")
+    # sanitize the metadata using asociated yaml:
+    metadata_fields: dict = yaml.safe_load(join(dest_root_path, "metadata_fields.yml"))
 
     smp = source_metadata_path
     with open(smp, 'rb') as f:
@@ -161,12 +190,13 @@ if __name__ == "__main__":
 
     rec_num = 0
     for i, metadata in pd.read_csv(smp, chunksize=100000):
+        new_metadata = []
         for record in metadata.itertuples(index=False):
             rec_num += 1
             pbar.update(1)
 
             record = record._asdict()
-            for f in metdata_fields.items():
+            for f in metadata_fields.items():
                 dtype = metadata_fields[f]['dtype']
                 try:
                     record[f] = _cast_dtype(record[f], dtype)
@@ -176,26 +206,48 @@ if __name__ == "__main__":
                           file=sys.stderr)
 
             try:
-                h1, h2, v = get_waveform_paths(record)
+                h1, h2, v = get_waveforms_path(record)
             except Exception as exc:
-                print(f"Error in get_waveform_paths (metadata row #{rec_num}): {exc}",
+                print(f"Error in get_waveforms_path (metadata row #{rec_num}): {exc}",
                       file=sys.stderr)
                 sys.exit(1)
 
+            # read waveforms separately:
             try:
-                record, h1, h2, v = process_waveforms(
-                    record,
-                    read_waveform(h1) if h1 else None,
-                    read_waveform(h1) if h2 else None,
-                    read_waveform(h1) if v else None
+                h1 = None if h1 is None else read_waveform(h1)
+            except Exception as exc:
+                print(
+                    f"Error in get_waveforms_path (metadata row #{rec_num}) building"
+                    f"h1 path. File not found: {h1}", file=sys.stderr
                 )
+                sys.exit(1)
+            try:
+                h2 = None if h2 is None else read_waveform(h2)
+            except Exception as exc:
+                print(
+                    f"Error in get_waveforms_path (metadata row #{rec_num}) building"
+                    f"h2 path. File not found: {h2}", file=sys.stderr
+                )
+                sys.exit(1)
+                # read waveforms separately:
+            try:
+                v = None if v is None else read_waveform(v)
+            except Exception as exc:
+                print(
+                    f"Error in get_waveforms_path (metadata row #{rec_num}) building"
+                    f"v path. File not found: {v}", file=sys.stderr
+                )
+                sys.exit(1)
+
+            try:
+                record, h1, h2, v = process_waveforms(record, h1, h2, v)
             except Exception as exc:
                 print(f"Error in process_waveforms (metadata row #{rec_num}): {exc}",
                       file=sys.stderr)
                 sys.exit(1)
 
             # check returned metadata
-            for f in metdata_fields.items():
+            for f in metadata_fields.items():
                 dtype = metadata_fields[f]['dtype']
                 try:
                     record[f] = _cast_dtype(record[f], dtype)
@@ -203,6 +255,7 @@ if __name__ == "__main__":
                     print(f"Error in metadata row #{rec_num} after processing: "
                           f"'{f}' should be {dtype}",
                           file=sys.stderr)
+            new_metadata.append(record)
 
             # save waveforms
             try:
@@ -213,8 +266,9 @@ if __name__ == "__main__":
             sys.exit(1)
 
         # save metadata:
-        metadata.to_csv(
+        pd.DataFrame(new_metadata).to_csv(
             dest_metadata_path,
+            date_format="%Y-%m-%dT%H:%M:%S",
             index=False,
             mode='a',
             header=(i == 0),
