@@ -1,4 +1,4 @@
-# Metadata fields (columns) description. See also metadata_template for a CSV template (header only)
+# Metadata fields (columns) description. See also metadata_template.csv
 # 
 # <column_name>:
 #   dtype:    The data type. Supported values are: null (the default when missing), int,
