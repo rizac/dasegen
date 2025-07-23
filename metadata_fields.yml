@@ -164,6 +164,14 @@ geology:
 slope:
   dtype: float
   help: The local slope of the station, >0
+
+# Time histories-related CSV fields:
+
+sensor_type:
+  dtype: ['A', 'V', 'D']
+  help: >-
+    the recording type. Acceleration, Velocity or Displacement. Time series 
+    units must be m /s**2, m/ s or m accordingly
 fpath_h1:
   dtype: str
   help: the waveform path, relative to the metadata.csv directory, of the 1st horizontal component
@@ -173,9 +181,6 @@ fpath_h2:
 fpath_v:
   dtype: str
   help: the waveform path, relative to the metadata.csv directory, of the 3rd horizontal component
-
-# Processing-related CSV fields:
-
 filter_type:
   dtype: ["O", "A", "C"]
   help: >- 

@@ -1,17 +1,33 @@
 """
-Template for the generation of a Time histories' database. Steps for the generation:
-1. Copy this file as well as metadata_fields in a empty directory.
-   You can leave empty cells if data is N/A or missing.
-2. Edit this file:
-   2a. Set your souece metadata csv file (variable source_metadata_path)
-   2b. How to read time histories from it (functions get_waveforms_path and read_waveform)
-   2c. How to process time histories and potentially modify the associated CSV row
-       (function process_waveforms)
-3. Eventually, execute this file *on the terminal within the Python virtual environment*
-   (or Conda env)
-   `python3 create_dataset.py`
-   (will scan all rows of your source metadata, process them and put them in the
-   `waveforms` sub-directory of this root directory, creating a new metadata file)
+Template for the generation of a Time histories' database. Steps for the generation
+are reported in the README file and here below,
+**but please refer to the README for the most up-to-date source**.
+
+Copy create_dataset.py as well as metadata_fields.yml in a empty directory
+
+Edit (rename) your source metadata file (CSV format) to match the field names in
+metadata_fields.yml. You can also start from metadata_template.csv as empty template,
+leaving empty cells if data is N/A or missing, or you plan to fill it inside
+create_dataset.py
+
+Edit create_dataset.py
+
+3a. Set the path of the source metadata file (variable source_metadata_path)
+
+3b. Implement how to read time histories from the metadata file rows
+    (functions get_waveforms_path and read_waveform)
+
+3c. Implement how to process time histories and potentially modify the associated CSV row
+    (function process_waveforms)
+
+Eventually, execute create_dataset.py file on the terminal within the Python virtual
+environment (or Conda env):
+
+python3 create_dataset.py
+
+The file will scan all rows of your source metadata file, process them and put them in
+the waveforms subdirectory of the root directory of create_dataset.py.
+A new metadata file metadata.csv will be also created in the same directory
 """
 from __future__ import annotations
 
@@ -96,7 +112,9 @@ def process_waveforms(
         metadata_row: dict, h1: Trace, h2: Trace, v: Trace
 ) -> tuple[dict, Optional[Trace], Optional[Trace], Optional[Trace]]:
     """Process the waveform(s), returning the same argument modified according to your
-    custom processing routine
+    custom processing routine. Please remember to provide waveforms in standard units
+    (m/sec*sec, m/sec, m) and consistent with the value of metadata_row['sensor_type']
+    ('A', 'V', 'D').
 
     :param metadata_row: dict corresponding to a row of your source metadata. Each dict
         key represents a Metadata field (Column). Note that float, str, datetime and
