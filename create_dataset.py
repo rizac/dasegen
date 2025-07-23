@@ -200,6 +200,7 @@ if __name__ == "__main__":
     smp = source_metadata_path
     with open(smp, 'rb') as f:
         max_rows = sum(1 for _ in f) - 1  # Subtract 1 for header
+
     pbar = tqdm(
         total=max_rows,
         bar_format="{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
@@ -211,6 +212,7 @@ if __name__ == "__main__":
         new_metadata = []
         for record in metadata.itertuples(index=False):
             rec_num += 1
+            metadata_row = f'metadata row #{rec_num}'
             pbar.update(1)
 
             record = record._asdict()
@@ -219,15 +221,18 @@ if __name__ == "__main__":
                 try:
                     record[f] = _cast_dtype(record[f], dtype)
                 except AssertionError:
-                    print(f"Error in (metadata row #{rec_num}): '{f}' "
-                          f"should be {dtype}",
-                          file=sys.stderr)
+                    print(
+                        f"Error in {metadata_row}: '{f}' should be {dtype}",
+                        file=sys.stderr
+                    )
 
             try:
                 h1, h2, v = get_waveforms_path(record)
             except Exception as exc:
-                print(f"Error in get_waveforms_path (metadata row #{rec_num}): {exc}",
-                      file=sys.stderr)
+                print(
+                    f"Error in get_waveforms_path ({metadata_row}): {exc}",
+                    file=sys.stderr
+                )
                 sys.exit(1)
 
             # read waveforms separately:
@@ -235,7 +240,7 @@ if __name__ == "__main__":
                 h1 = None if h1 is None else read_waveform(h1)
             except Exception as exc:
                 print(
-                    f"Error in get_waveforms_path (metadata row #{rec_num}) building"
+                    f"Error in get_waveforms_path ({metadata_row}) building "
                     f"h1 path. File not found: {h1}", file=sys.stderr
                 )
                 sys.exit(1)
@@ -243,7 +248,7 @@ if __name__ == "__main__":
                 h2 = None if h2 is None else read_waveform(h2)
             except Exception as exc:
                 print(
-                    f"Error in get_waveforms_path (metadata row #{rec_num}) building"
+                    f"Error in get_waveforms_path ({metadata_row}) building "
                     f"h2 path. File not found: {h2}", file=sys.stderr
                 )
                 sys.exit(1)
@@ -252,7 +257,7 @@ if __name__ == "__main__":
                 v = None if v is None else read_waveform(v)
             except Exception as exc:
                 print(
-                    f"Error in get_waveforms_path (metadata row #{rec_num}) building"
+                    f"Error in get_waveforms_path ({metadata_row}) building "
                     f"v path. File not found: {v}", file=sys.stderr
                 )
                 sys.exit(1)
@@ -260,8 +265,10 @@ if __name__ == "__main__":
             try:
                 record, h1, h2, v = process_waveforms(record, h1, h2, v)
             except Exception as exc:
-                print(f"Error in process_waveforms (metadata row #{rec_num}): {exc}",
-                      file=sys.stderr)
+                print(
+                    f"Error in process_waveforms ({metadata_row}): {exc}",
+                    file=sys.stderr
+                )
                 sys.exit(1)
 
             # check returned metadata
@@ -270,17 +277,21 @@ if __name__ == "__main__":
                 try:
                     record[f] = _cast_dtype(record[f], dtype)
                 except AssertionError:
-                    print(f"Error in metadata row #{rec_num} after processing: "
-                          f"'{f}' should be {dtype}",
-                          file=sys.stderr)
+                    print(
+                        f"Error in {metadata_row} after processing: "
+                        f"'{f}' should be {dtype}",
+                        file=sys.stderr
+                    )
             new_metadata.append(record)
 
             # save waveforms
             try:
                 save_waveforms(dest_waveforms_path, record, h1, h2, v)
             except Exception as exc:
-                print(f"Error in save_waveforms (metadata row #{rec_num}): {exc}",
-                      file=sys.stderr)
+                print(
+                    f"Error in save_waveforms ({metadata_row}): {exc}",
+                    file=sys.stderr
+                )
             sys.exit(1)
 
         # save metadata:
