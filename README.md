@@ -32,7 +32,7 @@ This package can be downloaded and modified for generating datasets of processed
 
 1. Copy `create_dataset.py` as well as `metadata_fields.yml` in a empty directory
    
-2. Edit (rename) your source metadata file (CSV format) to match the field names in `metadata_fields.yml`.
+2. Edit your source metadata file (CSV format) to match the field names in `metadata_fields.yml`.
    You can also start from `metadata_template.csv` as empty template, leaving empty cells if
    data is N/A or missing, or you plan to fill it inside `create_dataset.py` 
 
