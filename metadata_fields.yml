@@ -1,18 +1,11 @@
-# Flatfile metadata fields. Syntax (in YAML format):
-#
+# Metadata fields (columns) description. See also metadata_template for a CSV template (header only)
+# 
 # <column_name>:
 #   dtype:    The data type. Supported values are: null (the default when missing), int,
 #             float, str, bool, datetime. Provide a list of values (all the same dtype)
 #             for categorical data, i.e. when the column can only take on one of the
 #             given values. If non-null, the data type will be used for data validation
 #   help:     The field help (optional), used to provide documentation
-
-# YAML notes:
-# Unless required, strings (text sequences) don't need quotes ("'). Date-times must be
-# given as ISO-formatted strings (e.g.: 2006-01-01T12:31:21). YAML is a superset of JSON,
-# so you can type sequences and mappings as JSON Arrays and Objects, respectively. If
-# you want to type over multiple lines for readability, prefix the text with >-
-# (see examples here below or at https://stackoverflow.com/a/3790497)
 
 # Distance related CSV fields:
 
