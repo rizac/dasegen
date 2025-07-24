@@ -59,7 +59,7 @@ source_metadata_path:str = "path/to/my/source/metadata.csv"  # Your source metad
 
 def get_waveforms_path(metadata_row: dict) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Get the full source paths of the waveforms (h1, h2 and v components, in this
-    order) from the given metadata row `m_row`.
+    order) from the given row of your source metadata.
     Paths can be empty or None, meaning that the relative file is missing. This has to
     be taken into account in `process_waveforms` in case (see below). If files are not
     missing, then the file must exist
@@ -112,15 +112,23 @@ def process_waveforms(
         metadata_row: dict, h1: Trace, h2: Trace, v: Trace
 ) -> tuple[dict, Optional[Trace], Optional[Trace], Optional[Trace]]:
     """Process the waveform(s), returning the same argument modified according to your
-    custom processing routine. Please remember to provide waveforms in standard units
-    (m/sec*sec, m/sec, m) and consistent with the value of metadata_row['sensor_type']
-    ('A', 'V', 'D').
+    custom processing routine: a new metadata dict, and three obspy Traces denoting the
+    processed two horizontal and vertical components, respectively.
+
+    The metadata  dict can be built from `metadata_row` or from scratch, it must
+    include all fields defined in `metadata_fields.yml` with the correct data type:
+    note that float, str, datetime and categorical fields can be filled with None
+    to indicate that the corresponding value is missing or unknown.
+
+    For time histories, please remember to provide waveforms in standard units
+    (m/sec*sec, m/sec, m) and consistent with the value of of 'sensor_type' in the
+    returned metadata dict ('A', 'V', 'D'). Remember that, depending on your use-case,
+    some Traces might be None.
 
     :param metadata_row: dict corresponding to a row of your source metadata. Each dict
-        key represents a Metadata field (Column). Note that float, str, datetime and
-        categorical values can also be None (e.g., if the Metadata cell was empty).
-        You can modify this dict if you want, in case the modifications will be saved in
-        the destination metadata file. Note however that any new key will not be saved
+        key represents a Metadata field (Column). Note that dict values might not be
+        what you expect (e.g., empty  CSV cells might be None or np.nan, CSV date time in
+        ISO format might be strings) and you have to check it in the code
     :param h1: first horizontal component, as obspy Trace, or None (no Trace)
     :param h2: second horizontal component, as obspy Trace, or None (no Trace)
     :param v: vertical component, as obspy Trace, or None (no Trace)
@@ -216,16 +224,6 @@ if __name__ == "__main__":
             pbar.update(1)
 
             record = record._asdict()
-            for f in metadata_fields.items():
-                dtype = metadata_fields[f]['dtype']
-                try:
-                    record[f] = _cast_dtype(record[f], dtype)
-                except AssertionError:
-                    print(
-                        f"Error in {metadata_row}: '{f}' should be {dtype}",
-                        file=sys.stderr
-                    )
-
             try:
                 h1, h2, v = get_waveforms_path(record)
             except Exception as exc:
