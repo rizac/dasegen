@@ -57,9 +57,11 @@ This package can be downloaded and modified for generating datasets of processed
 
 
 
-# Helpers
+# Tips
 
-## Opening K-Net / Kik-NET
+## K-NET and KIK-NET time histories
+
+### Opening K-Net / Kik-NET
 
 To open K-Net /Kik-Net time histories, you can use obspy
 ```python
@@ -107,7 +109,7 @@ print(trace.stats.knet.evot)
 UTCDateTime(2006, 1, 18, 14, 25)
 ```
 
-## Saving K-Net / Kik-NET as miniSEED
+### Saving K-Net / Kik-NET as miniSEED
 
 To save file as miniSeed:
 ```python
