@@ -11,6 +11,7 @@
 
 azimuth:
   dtype: float
+  help: azimuth (deg)
 repi:
   dtype: float
   help: epicentral distance (in km)
@@ -84,7 +85,7 @@ rake:
     Hint: in case of more components available (e.g. from
     web services), the correct one should be inferred by the user from the rupture,
     or can be chosen randomly if no information is available
-sof:
+faulting_type:
   dtype: [0,1,2,3,4]
   help: >-
     Mechanism based on Rake Angle (Style of Faulting, sof). 0: Strike-slip (rake angles:
@@ -106,7 +107,7 @@ sta_id:
     In general, you can infer the id from the tuple (network_code, station_code)
     or create your own, as long as it holds: same id <=> same station. IDs should
     be preferably of type integer for performance reasons
-z1pt0:
+z1:
   dtype: float
   help: >-
     depth of the layer where seismic waves start to propagate with a speed above 1.0
@@ -136,9 +137,9 @@ sta_lon:
 vs30measured:
   dtype: bool
   help: whether or not the Vs30 is measured (default true)
-xvf:
-  dtype: float
-  help: distance to the volcanic front (km)
+#xvf:
+#  dtype: float
+#  help: distance to the volcanic front (km)
 fpeak:
   dtype: float
   help: >-
@@ -150,10 +151,10 @@ region:
     The ESHM2020 attenuation cluster region to which the site belongs
     (https://doi.org/10.1007/s10518-020-00899-9). 0 (default when missing): unknown,
     1: average / slower, 2: average / faster, 3: fast, 4: average, 5: very slow
-geology:
-  dtype: ["CENOZOIC", "HOLOCENE", "JURASSIC-TRIASSIC", "CRETACEOUS", "PALEOZOIC",
-          "PLEISTOCENE", "PRECAMBRIAN", "UNKNOWN"]
-  help: geological classification of the site. Default UNKNOWN
+#geology:
+#  dtype: ["CENOZOIC", "HOLOCENE", "JURASSIC-TRIASSIC", "CRETACEOUS", "PALEOZOIC",
+#          "PLEISTOCENE", "PRECAMBRIAN", "UNKNOWN"]
+#  help: geological classification of the site. Default UNKNOWN
 slope:
   dtype: float
   help: The local slope of the station, >0
@@ -165,19 +166,27 @@ sensor_type:
   help: >-
     the recording type. Acceleration, Velocity or Displacement. Time series 
     units must be m /s**2, m/ s or m accordingly
-fpath_h1:
+fpath:
   dtype: str
-  help: the waveform path, relative to the metadata.csv directory, of the 1st horizontal component
-fpath_h2:
-  dtype: str
-  help: the waveform path, relative to the metadata.csv directory, of the 2nd horizontal component
-fpath_v:
-  dtype: str
-  help: the waveform path, relative to the metadata.csv directory, of the 3rd horizontal component
+  help: >-
+    the waveform(s) path, relative to the metadata.csv directory. 
+    The file is an hdf5 file which stores a maximum of 3 h5py.Datasets object named
+    "h1", "h2" and "v" (first and second horizontal component, and vertical). At least
+    one component must be present not all 3 are mandatory, so code must check if they 
+    exist
+#fpath_h1:
+#  dtype: str
+#  help: the waveform path, relative to the metadata.csv directory, of the 1st horizontal component
+#fpath_h2:
+#  dtype: str
+#  help: the waveform path, relative to the metadata.csv directory, of the 2nd horizontal component
+#fpath_v:
+#  dtype: str
+#  help: the waveform path, relative to the metadata.csv directory, of the 3rd horizontal component
 filter_type:
   dtype: ["O", "A", "C"]
   help: >- 
-    Type of filter used data providesrs to remove noise at long and short periods. 
+    Type of filter used to remove noise at long and short periods. 
     O: Ormsby, A: Acausal Butterworth, C Causal butterworth
 npass:
   dtype: int
