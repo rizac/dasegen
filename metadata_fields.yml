@@ -128,6 +128,7 @@ backarc:
   help: >-
     whether or not the site is in the subduction backarc. When missing (or false, the
     default) the site is assumed to be unknown or in the subduction forearc
+  default: false
 sta_lat:
   dtype: float
   help: station latitude (deg), in [-90, 90]
@@ -137,6 +138,7 @@ sta_lon:
 vs30measured:
   dtype: bool
   help: whether or not the Vs30 is measured (default true)
+  default: true
 #xvf:
 #  dtype: float
 #  help: distance to the volcanic front (km)
@@ -190,7 +192,8 @@ filter_type:
     O: Ormsby, A: Acausal Butterworth, C Causal butterworth
 npass:
   dtype: int
-  help: Number of passes of filter, default 0
+  help: Number of passes of filter
+  default: 0
 nroll:
   dtype: float
   help: The `nroll` parameter of the Butterworth filter. None when not applicable (Ormsby filter)

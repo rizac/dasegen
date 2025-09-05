@@ -44,13 +44,10 @@ import csv
 import json
 import sys
 import fnmatch
-import obspy
 from numpy import ndarray
-# from obspy import Trace, Stream
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-import scipy
 import glob
 from tqdm import tqdm
 
@@ -330,6 +327,11 @@ source_metadata_csv_args = {}
 re_err_th = 0.05
 
 
+def get_dest_dir_path():
+    """destination root path, defaults to this script dir"""
+    return dirname(abspath(__file__))
+
+
 def main():
 
     source_metadata_path = None
@@ -339,7 +341,12 @@ def main():
         source_metadata_path = sys.argv[1]
         source_waveforms_path = sys.argv[2]
 
-    if not source_metadata_path or not source_waveforms_path:
+    err_noarg = not source_metadata_path or not source_waveforms_path
+    err_no_file = not isfile(source_metadata_path) or not isdir(source_waveforms_path)
+
+    if err_no_file or err_noarg:
+        print(f'Error: {"invalid arguments" if err_noarg else "invalid file/dir path"}',
+              file=sys.stderr)
         print(f"Usage: {sys.argv[0]} <metadata_table_file> <time_histories_dir>")
         print(f"Process and harmonzie an old dataset into a new one. "
               f"Takes every row of metadata_table_file (csv), finds the "
@@ -352,7 +359,7 @@ def main():
     print(f"Source metadata path: {source_metadata_path}")
     print(f"Source waveforms path: {source_waveforms_path}")
 
-    dest_root_path = dirname(abspath(__file__))
+    dest_root_path = get_dest_dir_path()
     dest_metadata_path = join(dest_root_path, "metadata.csv")
     dest_waveforms_path = join(dest_root_path, "waveforms")
 
@@ -438,9 +445,10 @@ def main():
     csv_args = dict(source_metadata_csv_args)
     csv_args.setdefault('chunksize', 100000)
     errs = 0
-    for i, metadata in pd.read_csv(source_metadata_path, **csv_args):
+    write_header = False
+    for metadata_chunk in pd.read_csv(source_metadata_path, **csv_args):
         new_metadata = []
-        for record in metadata.itertuples(index=False):
+        for record in metadata_chunk.itertuples(index=False):
 
             rec_num += 1
             metadata_row = f'metadata row #{rec_num}'
@@ -451,10 +459,10 @@ def main():
             step_name = "_cast_dtype"
             components = {'h1': None, 'h2': None, 'v': None}
             try:
-                for f in metadata_fields.items():
+                for f in metadata_fields.keys():
+                    step_name = f"_cast_dtype (metadata field '{f}')"
                     dtype = metadata_fields[f]['dtype']
-                    try:
-                        record[f] = _cast_dtype(record.get(f), dtype)
+                    record[f] = _cast_dtype(record.get(f), dtype)
                 new_metadata.append(record)
 
                 step_name = "find_waveform_paths"
@@ -465,7 +473,7 @@ def main():
                     step_name = f"read_waveform ({comp_name})"
                     comp_path = {'h1': h1, 'h2': h2, 'v': v}[comp_name]
                     if comp_path:
-                        components[comp_name] = read_waveform(comp_path, metadata)
+                        components[comp_name] = read_waveform(comp_path, record)
 
                 # save waveforms
                 step_name = "save_waveforms"  # noqa
@@ -501,9 +509,10 @@ def main():
             date_format="%Y-%m-%dT%H:%M:%S",
             index=False,
             mode='a',
-            header=(i == 0),
+            header=write_header,
             na_rep=''
         )
+        write_header = False
 
     os.chmod(
         dest_metadata_path,
