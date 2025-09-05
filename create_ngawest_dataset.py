@@ -32,6 +32,8 @@ A new metadata file metadata.csv will be also created in the same directory
 from __future__ import annotations
 
 from typing import Optional, Any, Tuple
+import logging
+import urllib.request
 import os
 from os.path import abspath, join, basename, isdir, isfile, dirname, splitext
 import stat
@@ -52,18 +54,13 @@ import scipy
 import glob
 from tqdm import tqdm
 
+
 ########################################################################
 # Editable file part: please read carefully and implement your routine #
 ########################################################################
 
-source_metadata_path: str = "path/to/my/source/metadata.csv"  # Your source metadata CSV file
-
-source_metadata_csv_args = {
-    'header': None}  # csv arguments for source metadata (e/g. 'header'= None)
-
-
-def get_waveforms_path(metadata: dict) -> tuple[
-    Optional[str], Optional[str], Optional[str]]:
+def find_waveforms_path(metadata: dict, waveforms_path: set[str]) \
+        -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Get the full source paths of the waveforms (h1, h2 and v components, in this
     order) from the given row of your source metadata.
     Paths can be empty or None, meaning that the relative file is missing. This has to
@@ -76,39 +73,26 @@ def get_waveforms_path(metadata: dict) -> tuple[
         was empty)
     """
     # get the path stored in the metadata file (just an example):
-    h1_path = metadata['fpath_h1']
-    h2_path = metadata['fpath_h2']
-    v_path = metadata['fpath_v']
+    candidates: dict[str, list[str]] = {
+        metadata['fpath_h1']: [],
+        metadata['fpath_h2']: [],
+        metadata['fpath_v']: []
+    }
 
-    # Example code (please MODIFY) given a source dir of raw time histories:
-    source_root_dir = "my/source/root"
+    for metadata_path, files in candidates.items():
+        if not metadata_path:
+            continue
+        for file_abs_path in waveforms_path:
+            if metadata_path in basename(file_abs_path):
+                files.append(file_abs_path)
 
-    # Option 1 (simple), simple concatenation of the source metadata fields:
-    files = (
-        join(source_root_dir, h1_path),
-        join(source_root_dir, h2_path),
-        join(source_root_dir, v_path)
+    return tuple(  # noqa
+        None if not k or len(v) != 1 else v[0] for k, v in candidates.items()
     )
 
-    # Option 2 (slightly more complex, files are nested inside source root dir):
-    files = ["", "", ""]
-    for idx, relative_path in [h1_path, h2_path, v_path]:
-        for dirpath, dirnames, filenames in os.walk(source_root_dir):
-            candidate = os.path.join(dirpath, relative_path)
-            if isfile(candidate):
-                files[idx] = os.path.abspath(candidate)
-                break
 
-    # Return the files. We do a last check setting a path to None if it does not exist,
-    # to signal the routine that the file should not be read. If you remove the line
-    # below, files must exist and the routine will break in case
-    return (
-        None if not isfile(files[0]) else files[0],
-        None if not isfile(files[1]) else files[1],
-        None if not isfile(files[2]) else files[2]
-    )
 
-def read_waveform(full_abs_path: str, metadata_row:dict) -> tuple[float, ndarray]:
+def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
     """Read a waveform from a file path. Modify according to the format you stored
     your time histories"""
     with open(full_abs_path) as f:
@@ -316,23 +300,6 @@ def save_waveforms(
     # Add read permission for group (stat.S_IRGRP) and others (stat.S_IROTH).
     os.chmod(file_path, os.stat(file_path).st_mode | stat.S_IRGRP | stat.S_IROTH)
 
-#     if h1 is not None:
-#         save_waveform(h1, abspath(join(root_path, record['fpath_h1'])))
-#     if h2 is not None:
-#         save_waveform(h2, abspath(join(root_path, record['fpath_h2'])))
-#     if v is not None:
-#         save_waveform(v, abspath(join(root_path, record['fpath_v'])))
-#
-#
-# def save_waveform(trace, dest_path):
-#     os.makedirs(os.path.dirname(dest_path))
-#     Stream([trace]).write(dest_path, format='MSEED')
-#     # Add read permission for group (stat.S_IRGRP) and others (stat.S_IROTH).
-#     os.chmod(
-#         dest_path,
-#         os.stat(dest_path).st_mode | stat.S_IRGRP | stat.S_IROTH
-#     )
-
 
 def _cast_dtype(val: Any, dtype: str):
     if dtype == 'float':
@@ -354,7 +321,36 @@ def _cast_dtype(val: Any, dtype: str):
     return val
 
 
-if __name__ == "__main__":
+# csv arguments for source metadata (e/g. 'header'= None)
+source_metadata_csv_args = {}
+
+# relative error threshold. After 100 waveforms, when waveforms with error / warnings
+# get higher than this number (relative to the total number of processed waveforms)
+# the program will stop. 0.05 means 5% max of erroneous waveforms
+re_err_th = 0.05
+
+
+def main():
+
+    source_metadata_path = None
+    source_waveforms_path = None
+
+    if len(sys.argv) == 3:
+        source_metadata_path = sys.argv[1]
+        source_waveforms_path = sys.argv[2]
+
+    if not source_metadata_path or not source_waveforms_path:
+        print(f"Usage: {sys.argv[0]} <metadata_table_file> <time_histories_dir>")
+        print(f"Process and harmonzie an old dataset into a new one. "
+              f"Takes every row of metadata_table_file (csv), finds the "
+              f"relative 3 time histories inside <time_histories_dir> (recursively)"
+              f"and saves the new metadata in ./metadata.csv and the new processed time"
+              f"histories in ./waveforms (. refers to this script current directory)")
+        sys.exit(1)
+
+    logging.info(f'Script: {" ".join([sys.executable] + sys.argv)}')
+    print(f"Source metadata path: {source_metadata_path}")
+    print(f"Source waveforms path: {source_waveforms_path}")
 
     dest_root_path = dirname(abspath(__file__))
     dest_metadata_path = join(dest_root_path, "metadata.csv")
@@ -376,11 +372,60 @@ if __name__ == "__main__":
         os.unlink(dest_metadata_path)
 
     # sanitize the metadata using associated yaml:
-    metadata_fields: dict = yaml.safe_load(join(dest_root_path, "metadata_fields.yml"))
+    print("Loading metadata fields from git repo")
+    # Download and save locally
+    try:
+        with urllib.request.urlopen("https://raw.githubusercontent.com"
+                                    "/rizac/dasegen/refs/heads/main/"
+                                    "metadata_fields.yml") as response:
+            metadata_fields_content = response.read()
+            # Load YAML into Python dict
+            metadata_fields = yaml.safe_load(metadata_fields_content.decode("utf-8"))
+            # save to file
+            with open(join(dest_root_path, 'metadata_fields.yml'), "wb") as f:
+                f.write(metadata_fields_content)
+    except Exception as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
 
-    smp = source_metadata_path
-    with open(smp, 'rb') as f:
+    with open(source_metadata_path, 'rb') as f:
         max_rows = sum(1 for _ in f) - 1  # Subtract 1 for header
+
+    log_dest_path = dest_metadata_path + ".log"
+    logging.basicConfig(
+        filename=log_dest_path,
+        level=logging.INFO,
+        format='%(message)s'  # minimal: just the message
+    )
+
+    print(f'Scanning {source_waveforms_path}')
+
+    invalid_file_extensions = {
+        # Metadata / headers
+        ".sta", ".hdr", ".inf", ".log", ".meta", ".xml", ".json", ".yml",
+        # Event catalogs / parameters
+        ".cat", ".hyp", ".pha", ".sum",
+        # Response / instrument files
+        ".resp", ".pz", ".cal",
+        # Processing / analysis outputs
+        ".fft", ".psa", ".rsp", ".spec", ".rdm", ".rdt",
+        ".mat", ".h5", ".npz",
+        # Generic office/text/plots
+        ".csv", ".xls", ".xlsx", ".doc", ".docx",
+        ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff",
+        # Compression / archives
+        ".zip", ".gz", ".tgz", ".bz2", ".xz", ".tar", ".7z",
+        # Hidden macOS / Unix files
+        ".DS_Store", ".AppleDouble", ".Spotlight-V100",
+    }
+
+    files = set()
+    for dirpath, dirnames, filenames in os.walk(source_waveforms_path):
+        for f in filenames:
+            if splitext(f)[1].lower() in invalid_file_extensions:
+                continue
+        candidate = abspath(join(dirpath, f))
+        files.add(candidate)
 
     pbar = tqdm(
         total=max_rows,
@@ -388,84 +433,67 @@ if __name__ == "__main__":
                    "(estimated remaining time {remaining}s)"
     )
 
+    print(f'Processing records in {source_metadata_path}')
     rec_num = 0
     csv_args = dict(source_metadata_csv_args)
     csv_args.setdefault('chunksize', 100000)
-    for i, metadata in pd.read_csv(smp, **csv_args):
+    errs = 0
+    for i, metadata in pd.read_csv(source_metadata_path, **csv_args):
         new_metadata = []
         for record in metadata.itertuples(index=False):
+
             rec_num += 1
             metadata_row = f'metadata row #{rec_num}'
+            record = record._asdict()  # noqa
             pbar.update(1)
 
-            record = record._asdict()
-            try:
-                h1, h2, v = get_waveforms_path(record)
-            except Exception as exc:
-                print(
-                    f"Error in get_waveforms_path ({metadata_row}): {exc}",
-                    file=sys.stderr
-                )
-                sys.exit(1)
-
-            # read waveforms separately:
-            try:
-                h1 = None if h1 is None else read_waveform(h1, metadata)
-            except Exception as exc:
-                print(
-                    f"Error in get_waveforms_path ({metadata_row}) building "
-                    f"h1 path. File not found: {h1}", file=sys.stderr
-                )
-                sys.exit(1)
-            try:
-                h2 = None if h2 is None else read_waveform(h2, metadata)
-            except Exception as exc:
-                print(
-                    f"Error in get_waveforms_path ({metadata_row}) building "
-                    f"h2 path. File not found: {h2}", file=sys.stderr
-                )
-                sys.exit(1)
-                # read waveforms separately:
-            try:
-                v = None if v is None else read_waveform(v, metadata)
-            except Exception as exc:
-                print(
-                    f"Error in get_waveforms_path ({metadata_row}) building "
-                    f"v path. File not found: {v}", file=sys.stderr
-                )
-                sys.exit(1)
-
-            try:
-                record, h1, h2, v = process_waveforms(record, h1, h2, v)
-            except Exception as exc:
-                print(
-                    f"Error in process_waveforms ({metadata_row}): {exc}",
-                    file=sys.stderr
-                )
-                sys.exit(1)
-
             # check returned metadata
-            for f in metadata_fields.items():
-                dtype = metadata_fields[f]['dtype']
-                try:
-                    record[f] = _cast_dtype(record[f], dtype)
-                except AssertionError:
-                    print(
-                        f"Error in {metadata_row} after processing: "
-                        f"'{f}' should be {dtype}",
-                        file=sys.stderr
-                    )
-            new_metadata.append(record)
-
-            # save waveforms
+            step_name = "_cast_dtype"
+            components = {'h1': None, 'h2': None, 'v': None}
             try:
-                save_waveforms(dest_waveforms_path, record, h1, h2, v)
+                for f in metadata_fields.items():
+                    dtype = metadata_fields[f]['dtype']
+                    try:
+                        record[f] = _cast_dtype(record.get(f), dtype)
+                new_metadata.append(record)
+
+                step_name = "find_waveform_paths"
+                h1, h2, v = find_waveforms_path(record, files)
+
+                # read waveforms separately:
+                for comp_name in components:
+                    step_name = f"read_waveform ({comp_name})"
+                    comp_path = {'h1': h1, 'h2': h2, 'v': v}[comp_name]
+                    if comp_path:
+                        components[comp_name] = read_waveform(comp_path, metadata)
+
+                # save waveforms
+                step_name = "save_waveforms"  # noqa
+                save_waveforms(dest_waveforms_path, record,
+                               components['h1'],
+                               components['h2'],
+                               components['v'])
             except Exception as exc:
-                print(
-                    f"Error in save_waveforms ({metadata_row}): {exc}",
-                    file=sys.stderr
+                logging.error(
+                    f"Error in {step_name}, {metadata_row}: {exc}"
                 )
-            sys.exit(1)
+                errs += 1
+                continue
+
+            # if any waveform is None, something went wring, continue but add an error
+            no_time_series_num = sum(not _ for _ in components.values())
+            if no_time_series_num > 0:
+                logging.warning(
+                    f"{metadata_row}: {no_time_series_num} of 3 components not created "
+                    f"and saved"
+                )
+                errs += 1
+
+            if rec_num > 100 and errs / rec_num > re_err_th:
+                msg = 'Too many errors, check log file and re-run module'
+                print(msg, file=sys.stderr)
+                logging.error(msg)
+                sys.exit(1)
 
         # save metadata:
         pd.DataFrame(new_metadata).to_csv(
@@ -483,3 +511,7 @@ if __name__ == "__main__":
     )
     pbar.close()
     sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

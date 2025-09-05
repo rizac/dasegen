@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from typing import Optional, Any, Tuple
 import logging
+import urllib.request
 import os
 from os.path import abspath, join, basename, isdir, isfile, dirname, splitext
 import stat
@@ -57,18 +58,6 @@ from tqdm import tqdm
 ########################################################################
 # Editable file part: please read carefully and implement your routine #
 ########################################################################
-
-# Your source metadata CSV file
-source_metadata_path:str = "path/to/my/source/metadata.csv"
-
-# csv arguments for source metadata (e/g. 'header'= None)
-source_metadata_csv_args = {}
-
-# relative error threshold. After 100 waveforms, when waveforms with error / warnings
-# get higher than this number (relative to the total number of processed waveforms)
-# the program will stop. 0.05 means 5% max of erroneous waveforms
-re_err_th = 0.05
-
 
 def find_waveforms_path(metadata: dict, waveforms_path: set[str]) \
         -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -98,7 +87,9 @@ def find_waveforms_path(metadata: dict, waveforms_path: set[str]) \
             if metadata_path in basename(file_abs_path):
                 files.append(file_abs_path)
 
-    return tuple(None if not k or len(v) != 1 else v[0] for k, v in candidates.items())  # noqa
+    return tuple(  # noqa
+        None if not k or len(v) != 1 else v[0] for k, v in candidates.items()
+    )
 
 
 def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
@@ -201,7 +192,16 @@ def _cast_dtype(val: Any, dtype:str):
     return val
 
 
-if __name__ == "__main__":
+# csv arguments for source metadata (e/g. 'header'= None)
+source_metadata_csv_args = {}
+
+# relative error threshold. After 100 waveforms, when waveforms with error / warnings
+# get higher than this number (relative to the total number of processed waveforms)
+# the program will stop. 0.05 means 5% max of erroneous waveforms
+re_err_th = 0.05
+
+
+def main():
 
     source_metadata_path = None
     source_waveforms_path = None
@@ -220,8 +220,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     logging.info(f'Script: {" ".join([sys.executable] + sys.argv)}')
-    print(f"source metadata path: {source_metadata_path}")
-    print(f"source waveforms path: {source_waveforms_path}")
+    print(f"Source metadata path: {source_metadata_path}")
+    print(f"Source waveforms path: {source_waveforms_path}")
 
     dest_root_path = dirname(abspath(__file__))
     dest_metadata_path = join(dest_root_path, "metadata.csv")
@@ -243,7 +243,21 @@ if __name__ == "__main__":
         os.unlink(dest_metadata_path)
 
     # sanitize the metadata using associated yaml:
-    metadata_fields: dict = yaml.safe_load(join(dest_root_path, "metadata_fields.yml"))
+    print("Loading metadata fields from git repo")
+    # Download and save locally
+    try:
+        with urllib.request.urlopen("https://raw.githubusercontent.com"
+                                    "/rizac/dasegen/refs/heads/main/"
+                                    "metadata_fields.yml") as response:
+            metadata_fields_content = response.read()
+            # Load YAML into Python dict
+            metadata_fields = yaml.safe_load(metadata_fields_content.decode("utf-8"))
+            # save to file
+            with open(join(dest_root_path, 'metadata_fields.yml'), "wb") as f:
+                f.write(metadata_fields_content)
+    except Exception as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
 
     with open(source_metadata_path, 'rb') as f:
         max_rows = sum(1 for _ in f) - 1  # Subtract 1 for header
@@ -290,6 +304,7 @@ if __name__ == "__main__":
                    "(estimated remaining time {remaining}s)"
     )
 
+    print(f'Processing records in {source_metadata_path}')
     rec_num = 0
     csv_args = dict(source_metadata_csv_args)
     csv_args.setdefault('chunksize', 100000)
@@ -298,101 +313,58 @@ if __name__ == "__main__":
         new_metadata = []
         for record in metadata.itertuples(index=False):
 
-            if rec_num > 100 and errs / rec_num > re_err_th:
-                print('Too many errors, check log file and re-run module')
-                sys.exit(1)
-
             rec_num += 1
             metadata_row = f'metadata row #{rec_num}'
+            record = record._asdict()  # noqa
             pbar.update(1)
 
-            record = record._asdict()
-            try:
-                h1, h2, v = find_waveforms_path(record, files)
-                nones = (not h1) + (not h2) + (not v)
-                if nones > 0:
-                    logging.warning(
-                        f"Error in find_waveforms_path ({metadata_row}): "
-                        f"{nones} out of 3 time histories have no unique matching file"
-                    )
-                    if nones > 2:
-                        errs += 1
-                        continue
-
-            except Exception as exc:
-                h1, h2, v = None, None, None
-                logging.warning(
-                    f"Error in find_waveforms_path ({metadata_row}): {exc}"
-                )
-                errs += 1
-                continue
-
-            # read waveforms separately:
-            try:
-                h1 = None if h1 is None else read_waveform(h1, metadata)
-            except Exception as exc:
-                logging.warning(
-                    f"Error in get_waveforms_path ({metadata_row}) building "
-                    f"h1 path. File not found: {h1}"
-                )
-                errs += 1
-                continue
-            try:
-                h2 = None if h2 is None else read_waveform(h2, metadata)
-            except Exception as exc:
-                logging.warning(
-                    f"Error in get_waveforms_path ({metadata_row}) building "
-                    f"h2 path. File not found: {h2}"
-                )
-                errs += 1
-                continue
-            try:
-                v = None if v is None else read_waveform(v, metadata)
-            except Exception as exc:
-                logging.warning(
-                    f"Error in get_waveforms_path ({metadata_row}) building "
-                    f"v path. File not found: {v}"
-                )
-                errs += 1
-                continue
-
-            try:
-                record, h1, h2, v = process_waveforms(record, h1, h2, v)
-            except Exception as exc:
-                logging.warning(
-                    f"Error in process_waveforms ({metadata_row}): {exc}"
-                )
-                errs += 1
-                continue
-
             # check returned metadata
-            for f in metadata_fields.items():
-                dtype = metadata_fields[f]['dtype']
-                try:
-                    record[f] = _cast_dtype(record[f], dtype)
-                except AssertionError:
-                    logging.warning(
-                        f"Error in {metadata_row} after processing: "
-                        f"'{f}' should be {dtype}"
-                    )
-                    errs += 1
-                    continue
-            new_metadata.append(record)
-
-            # save waveforms
+            step_name = "_cast_dtype"
+            components = {'h1': None, 'h2': None, 'v': None}
             try:
-                save_waveforms(dest_waveforms_path, record, h1, h2, v)
+                for f in metadata_fields.items():
+                    dtype = metadata_fields[f]['dtype']
+                    try:
+                        record[f] = _cast_dtype(record.get(f), dtype)
+                new_metadata.append(record)
+
+                step_name = "find_waveform_paths"
+                h1, h2, v = find_waveforms_path(record, files)
+
+                # read waveforms separately:
+                for comp_name in components:
+                    step_name = f"read_waveform ({comp_name})"
+                    comp_path = {'h1': h1, 'h2': h2, 'v': v}[comp_name]
+                    if comp_path:
+                        components[comp_name] = read_waveform(comp_path, metadata)
+
+                # save waveforms
+                step_name = "save_waveforms"  # noqa
+                save_waveforms(dest_waveforms_path, record,
+                               components['h1'],
+                               components['h2'],
+                               components['v'])
             except Exception as exc:
-                logging.warning(
-                    f"Error in save_waveforms ({metadata_row}): {exc}"
+                logging.error(
+                    f"Error in {step_name}, {metadata_row}: {exc}"
                 )
                 errs += 1
                 continue
 
-        # if any waveform is None, something went wring, continue but add an error
-        no_time_series_num = (not h1) + (not h2) + (not v)
-        if no_time_series_num > 0:
-            errs += 1
+            # if any waveform is None, something went wring, continue but add an error
+            no_time_series_num = sum(not _ for _ in components.values())
+            if no_time_series_num > 0:
+                logging.warning(
+                    f"{metadata_row}: {no_time_series_num} of 3 components not created "
+                    f"and saved"
+                )
+                errs += 1
+
+            if rec_num > 100 and errs / rec_num > re_err_th:
+                msg = 'Too many errors, check log file and re-run module'
+                print(msg, file=sys.stderr)
+                logging.error(msg)
+                sys.exit(1)
 
         # save metadata:
         pd.DataFrame(new_metadata).to_csv(
@@ -410,3 +382,7 @@ if __name__ == "__main__":
     )
     pbar.close()
     sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
