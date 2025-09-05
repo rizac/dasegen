@@ -3,6 +3,12 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# added by me
+.DS_Store
+tests/*.CSV
+tests/*.csv
+
+
 # C extensions
 *.so
 
