@@ -56,7 +56,7 @@ from tqdm import tqdm
 # Editable file part: please read carefully and implement your routine #
 ########################################################################
 
-def find_waveforms_path(metadata: dict, waveforms_path: set[str]) \
+def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
         -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Get the full source paths of the waveforms (h1, h2 and v components, in this
     order) from the given row of your source metadata.
@@ -80,7 +80,7 @@ def find_waveforms_path(metadata: dict, waveforms_path: set[str]) \
     for metadata_path, files in candidates.items():
         if not metadata_path:
             continue
-        for file_abs_path in waveforms_path:
+        for file_abs_path in waveform_file_paths:
             if metadata_path in basename(file_abs_path):
                 files.append(file_abs_path)
 
@@ -92,6 +92,7 @@ def find_waveforms_path(metadata: dict, waveforms_path: set[str]) \
 def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
     """Read a waveform from a file path. Modify according to the format you stored
     your time histories"""
+    import obspy   # needs to be installed first # noqa
     trace = obspy.read(full_abs_path, format='KNET')[0]
     return trace.stats.delta, trace.data
 
@@ -136,19 +137,26 @@ def process_waveforms(
     return metadata, h1, h2, v
 
 
+# csv arguments for source metadata (e/g. 'header'= None)
+source_metadata_csv_args = {}
+
+# relative error threshold. After 100 waveforms, when waveforms with error / warnings
+# get higher than this number (relative to the total number of processed waveforms)
+# the program will stop. 0.05 means 5% max of erroneous waveforms
+re_err_th = 0.05
+
+
 ###########################################
 # The code below should not be customized #
 ###########################################
 
 
 def save_waveforms(
-        root_path,
-        metadata: dict,
-        h1: tuple[float, ndarray],
-        h2: tuple[float, ndarray],
-        v: tuple[float, ndarray]
+        file_path,
+        h1: Optional[tuple[float, ndarray]],
+        h2: Optional[tuple[float, ndarray]],
+        v: Optional[tuple[float, ndarray]]
 ):
-    file_path = abspath(join(root_path, metadata['fpath']))
     os.makedirs(file_path)
 
     with h5py.File(file_path, "w") as f:
@@ -189,15 +197,6 @@ def _cast_dtype(val: Any, dtype:str):
     return val
 
 
-# csv arguments for source metadata (e/g. 'header'= None)
-source_metadata_csv_args = {}
-
-# relative error threshold. After 100 waveforms, when waveforms with error / warnings
-# get higher than this number (relative to the total number of processed waveforms)
-# the program will stop. 0.05 means 5% max of erroneous waveforms
-re_err_th = 0.05
-
-
 def get_dest_dir_path():
     """destination root path, defaults to this script dir"""
     return dirname(abspath(__file__))
@@ -212,7 +211,12 @@ def main():
         source_metadata_path = sys.argv[1]
         source_waveforms_path = sys.argv[2]
 
-    if not source_metadata_path or not source_waveforms_path:
+    err_noarg = not source_metadata_path or not source_waveforms_path
+    err_no_file = not isfile(source_metadata_path) or not isdir(source_waveforms_path)
+
+    if err_no_file or err_noarg:
+        print(f'Error: {"invalid arguments" if err_noarg else "invalid file/dir path"}',
+              file=sys.stderr)
         print(f"Usage: {sys.argv[0]} <metadata_table_file> <time_histories_dir>")
         print(f"Process and harmonzie an old dataset into a new one. "
               f"Takes every row of metadata_table_file (csv), finds the "
@@ -282,7 +286,7 @@ def main():
         ".resp", ".pz", ".cal",
         # Processing / analysis outputs
         ".fft", ".psa", ".rsp", ".spec", ".rdm", ".rdt",
-        ".mat", ".h5", ".npz",
+        ".mat", ".h5", ".npz", ".py", ".pyc", ".java", ".c",
         # Generic office/text/plots
         ".csv", ".xls", ".xlsx", ".doc", ".docx",
         ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff",
@@ -314,38 +318,64 @@ def main():
     write_header = False
     for metadata_chunk in pd.read_csv(source_metadata_path, **csv_args):
         new_metadata = []
-        for record in metadata_chunk.itertuples(index=False):
+        for record in metadata_chunk.to_dict(orient="records"):
 
             rec_num += 1
             metadata_row = f'metadata row #{rec_num}'
-            record = record._asdict()  # noqa
             pbar.update(1)
 
-            # check returned metadata
-            step_name = "_cast_dtype"
+            step_name = ""
             components = {'h1': None, 'h2': None, 'v': None}
             try:
-                for f in metadata_fields.keys():
-                    dtype = metadata_fields[f]['dtype']
-                    record[f] = _cast_dtype(record.get(f), dtype)
-                new_metadata.append(record)
-
                 step_name = "find_waveform_paths"
                 h1, h2, v = find_waveforms_path(record, files)
 
                 # read waveforms separately:
-                for comp_name in components:
-                    step_name = f"read_waveform ({comp_name})"
-                    comp_path = {'h1': h1, 'h2': h2, 'v': v}[comp_name]
-                    if comp_path:
-                        components[comp_name] = read_waveform(comp_path, record)
+                f_name = h1 if h1 else h2 if h2 else v if v else None
 
-                # save waveforms
-                step_name = "save_waveforms"  # noqa
-                save_waveforms(dest_waveforms_path, record,
-                               components['h1'],
-                               components['h2'],
-                               components['v'])
+                if f_name is not None:
+                    for comp_name in components:
+                        step_name = f"read_waveform ({comp_name})"
+                        comp_path = {'h1': h1, 'h2': h2, 'v': v}[comp_name]
+                        if comp_path:
+                            components[comp_name] = read_waveform(comp_path, record)
+
+                    # process waveforms
+                    step_name = "save_waveforms"  # noqa
+                    record, h1, h2, v = process_waveforms(
+                        record,
+                        components.get('h1'),
+                        components.get('h2'),
+                        components.get('v')
+                    )
+                    # check record data types:
+                    new_record = {}
+                    for f in record.keys():
+                        step_name = f"_cast_dtype (field '{f}')"
+                        dtype = metadata_fields[f]['dtype']
+                        default_val = metadata_fields[f].get('default')
+                        new_record[f] = _cast_dtype(record.get(f, default_val), dtype)
+                    new_metadata.append(new_record)
+
+                    # save waveforms
+                    step_name = "save_waveforms"  # noqa
+                    dest_waveforms_path = join(
+                        dest_root_path, splitext(basename(f_name))[0] + ".h5"
+                    )
+                    save_waveforms(dest_waveforms_path, h1, h2, v)
+                    avail_th = None
+                    if h1 is None and h2 is None and v is not None:
+                        avail_th = 'V'
+                    elif h1 is not None and h2 is not None and v is not None:
+                        avail_th = 'HHV'
+                    elif h1 is not None and h2 is not None and v is None:
+                        avail_th = 'HH'
+                    elif (h1 is None) != (h2 is None) and v is not None:
+                        avail_th = 'HV'
+                    elif (h1 is not None) != (h2 is not None) and v is None:
+                        avail_th = 'H'
+                    new_record['avail_time_hist'] = avail_th
+
             except Exception as exc:
                 logging.error(
                     f"Error in {step_name}, {metadata_row}: {exc}"
@@ -354,10 +384,10 @@ def main():
                 continue
 
             # if any waveform is None, something went wring, continue but add an error
-            no_time_series_num = sum(not _ for _ in components.values())
-            if no_time_series_num > 0:
+            _time_series_num = sum(_ is not None for _ in components.values())
+            if _time_series_num < 3:
                 logging.warning(
-                    f"{metadata_row}: {no_time_series_num} of 3 components not created "
+                    f"{metadata_row}: only {_time_series_num} of 3 components created "
                     f"and saved"
                 )
                 errs += 1
@@ -368,16 +398,17 @@ def main():
                 logging.error(msg)
                 sys.exit(1)
 
-        # save metadata:
-        pd.DataFrame(new_metadata).to_csv(
-            dest_metadata_path,
-            date_format="%Y-%m-%dT%H:%M:%S",
-            index=False,
-            mode='a',
-            header=write_header,
-            na_rep=''
-        )
-        write_header = False
+        if new_metadata:
+            # save metadata:
+            pd.DataFrame(new_metadata).to_csv(
+                dest_metadata_path,
+                date_format="%Y-%m-%dT%H:%M:%S",
+                index=False,
+                mode='a',
+                header=write_header,
+                na_rep=''
+            )
+            write_header = False
 
     os.chmod(
         dest_metadata_path,

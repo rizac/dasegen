@@ -56,7 +56,7 @@ from tqdm import tqdm
 # Editable file part: please read carefully and implement your routine #
 ########################################################################
 
-def find_waveforms_path(metadata: dict, waveforms_path: set[str]) \
+def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
         -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Get the full source paths of the waveforms (h1, h2 and v components, in this
     order) from the given row of your source metadata.
@@ -69,24 +69,29 @@ def find_waveforms_path(metadata: dict, waveforms_path: set[str]) \
         datetime and categorical values can also be None (e.g., if the Metadata cell
         was empty)
     """
-    # get the path stored in the metadata file (just an example):
-    candidates: dict[str, list[str]] = {
-        metadata['fpath_h1']: [],
-        metadata['fpath_h2']: [],
-        metadata['fpath_v']: []
-    }
+    file_h1 = []
+    file_h2 = []
+    file_v = []
 
-    for metadata_path, files in candidates.items():
-        if not metadata_path:
+    rsn = metadata[0]
+
+    for file_abs_path in waveform_file_paths:
+        bname = basename(file_abs_path)
+        if bname.endswith(f'{rsn}_{metadata[112].strip()}'):
+            file_h1.append(file_abs_path)
             continue
-        for file_abs_path in waveforms_path:
-            if metadata_path in basename(file_abs_path):
-                files.append(file_abs_path)
+        if bname.endswith(f'{rsn}_{metadata[113].strip()}'):
+            file_h2.append(file_abs_path)
+            continue
+        if bname.endswith(f'{rsn}_{metadata[114].strip()}'):
+            file_v.append(file_abs_path)
+            continue
 
-    return tuple(  # noqa
-        None if not k or len(v) != 1 else v[0] for k, v in candidates.items()
+    return (
+        file_h1[0] if len(file_h1) == 1 else None,
+        file_h2[0] if len(file_h2) == 1 else None,
+        file_v[0] if len(file_v) == 1 else None
     )
-
 
 
 def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
@@ -97,39 +102,12 @@ def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
         header1 = f.readline().strip()
         header2 = f.readline().strip()
         header3 = f.readline().strip()
-        header4 = f.readline().split()
-        # ndat = int(header4[1][:-1])
-        # dtsamp = float(header4[3])
-        ### By using the small following routine, I am finding only the data with digits from this header4 line.
-        # numeric = '0123456789-.'
-        # numbers = []
-        # for h in header4:
-        #     for i, c in enumerate(h + ' '):
-        #         if c not in numeric:
-        #             break
-        #     if len(h[:i]) > 0:
-        #         digits = h[:i]
-        #         numbers.append(digits)
-        # # In the numbers only first and second ndat and dtsamp.
-        # ndat = int(numbers[0])
-        # dtsamp = float(numbers[1])
-        # times = np.array([dtsamp * j for j in range(ndat)])
-        reg = re.match("^NPTS\s*=\s*(\d+)\s*,\s*DT\s*=\s*([\.\d]+)\s*SEC,*\s*$")
-        dt = float(reg.group(1))
-        # data = []
-        # for line in f:
-        #     line = line.strip().split()
-        #     yy = []
-        #     for l in line:
-        #         try:
-        #             yy.append(float(l))
-        #         except ValueError:
-        #             yy.append(l)
-        #     data.extend(yy)
-        data = np.fromiter((float(n) for line in f for n in line), dtype=float)
-        f.close()
-
-        # get arrival time and
+        header4 = f.readline().split(",")
+        npts = int(re.match(r"NPTS\s*=\s*(\d+)", header4[0].strip()).group(1))
+        dt = float(re.match(r"DT\s*=\s*([\.\d]+)\s*SEC", header4[1].strip()).group(1))
+        data_str = " ".join(line for line in f)
+        # The acceleration time series is given in units of g. So I convert it in m/s.
+        return dt, np.fromstring(data_str, sep=" ") * 9.80665
 
         # The acceleration time series is given in units of g. So I convert it in m/s.
         # However it is said only that its in the units of g, not sure if its 980 cm/s^ or 9.8 m/s^2
@@ -139,19 +117,19 @@ def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
         # pga = max(np.abs(data))
         # pga_ind = [abs(number) for number in data].index(pga)
         # pga_ind = np.argmax(np.abs(data))
-        return dt, data
+        # return dt, data
 
 
 def process_waveforms(
         metadata: dict,
-        h1: tuple[float, ndarray],
-        h2: tuple[float, ndarray],
-        v: tuple[float, ndarray]
+        h1: Optional[tuple[float, ndarray]],
+        h2: Optional[tuple[float, ndarray]],
+        v: Optional[tuple[float, ndarray]]
 ) -> tuple[
     dict,
-    tuple[float, ndarray] | None,
-    tuple[float, ndarray] | None,
-    tuple[float, ndarray] | None
+    Optional[tuple[float, ndarray]],
+    Optional[tuple[float, ndarray]],
+    Optional[tuple[float, ndarray]]
 ]:
     """Process the waveform(s), returning the same argument modified according to your
     custom processing routine: a new metadata dict, and three obspy Traces denoting the
@@ -179,89 +157,83 @@ def process_waveforms(
     :param v: vertical component, same format as h1
     """
     # compute arrival time (correct)
-    evt_time = datetime.fromisoformat(metadata.get(13))
-    evt_depth_km = metadata.get(33)
-    r_epi_km = metadata.get(55)
-
-    # re-compute the time series start time
-
-    # # Get first arrival for P-phase
-    # arrivals = tt_model.get_travel_times(
-    #     source_depth_in_km=evt_depth_km,
-    #     distance_in_degree=kilometer2degrees(r_epi_km),
-    #     phase_list=["P"]
-    # )
-    #
-    # # Extract travel time in seconds (float)
-    # t_time = 0  # default trqvel time (from event origin time) is assumed to be 0 seconds
-    # if arrivals:
-    #     t_time = arrivals[0].time  # in seconds
-    #
-    # t_time -= 450  # account for the nga-west time window before P-arrival, loosely
-    # # estimated from the figures at page 22 of:
-    # # https://peer.berkeley.edu/sites/default/files/webpeer-2014-17-christine_a._goulet_tadahiro_kishida_timothy_d._ancheta_chris_h._cramer_robert_b._final.pdf)  # noqa
-    #
-    # # modify the traces with the correct arrival time:
-    # h1.stats.starttime = evt_time + timedelta(seconds=t_time)
-    # h2.stats.starttime = evt_time + timedelta(seconds=t_time)
-    # v.stats.starttime = evt_time + timedelta(seconds=t_time)
-
-    evt_id = metadata.get(12)
+    year = metadata[3]
+    month_day = str(metadata[4])
+    if len(month_day) == 3:
+        month_day = '0' + month_day
+    hour_min = str(metadata[5])
+    if len(hour_min) == 3:
+        hour_min = '0' + hour_min
+    assert len(month_day) == len(hour_min) == 4, 'month_day or hour_min invalid'
+    month, day = int(month_day[:2]), int(month_day[2:])
+    hour, min = int(hour_min[:2]), int(hour_min[2:])
+    evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
+    evt_id = metadata.get(1)
     new_metadata = {
-        'azimuth': metadata.get(62),
-        'repi': metadata.get(55),
-        'rrup': metadata.get(60),
-        'rhypo': metadata.get(56),
-        'rjb': metadata.get(57),
-        'rx': None,
-        'ry': None,
-        'rvolc': None,
-
         'evt_id': evt_id,
+        # 'azimuth': metadata.get(54),
+        'repi': metadata.get(47),
+        'rhypo': metadata.get(48),
+        'rjb': metadata.get(49),
+        'rrup': metadata.get(52),
+        # 'r_x': None,
+        # 'r_y': None,
+        # 'r_volc': None,
         'evt_time': evt_time,
-        'evt_lat': metadata.get(31),
-        'evt_lon': metadata.get(32),
-        'mag': metadata.get(14),
-        'mag_type': metadata.get(15),
-        'evt_depth': metadata.get(33),
-        'rup_top_depth': metadata.get(39),
-        'rup_width': metadata.get(41),
-        'strike': metadata.get(23),
-        'dip': metadata.get(24),
-        'rake': metadata.get(25),
-        'sof': metadata.get(26),
+        'evt_lat': metadata.get(24),
+        'evt_lon': metadata.get(25),
+        'evt_depth': metadata.get(26),
+        'mag': metadata.get(9),
+        'mag_type': metadata.get(10),
 
-        'sta_id': metadata.get(11) if metadata.get(11) != "99999" else
-        "#" + metadata.get(10),
-        "z1": metadata.get(105),
-        "z2pt5": metadata.get(107),
-        "vs30": metadata.get(87),
+        'rup_top_depth': metadata.get(31),
+        'rup_width': metadata.get(33),  # FIXME check
+        'strike': metadata.get(16),
+        'dip': metadata.get(17),
+        'rake': metadata.get(18),
+        'fault_type': metadata.get(19),  # FIXME check
+
+        'sta_id': str(metadata.get(8)) if str(metadata.get(8)) != "99999" else
+        "NGA#:" + str(metadata.get(7)),
         "backarc": False,  # FIXME check!
-        "sta_lat": metadata.get(95),
-        "sta_lon": metadata.get(96),
-        "vs30measured": metadata.get(89) in {0, "0", 0.0},
+        "sta_lat": metadata.get(87),
+        "sta_lon": metadata.get(88),
+        "z1": metadata.get(97),
+        "z2pt5": metadata.get(98),
+        "vs30": metadata.get(79),
+        "vs30measured": metadata.get(81) in {0, "0", 0.0},
+
         # "xvf": None,
         "region": 0,
         "fpeak": None,
         # "geology": None,
         "sensor_type": 'A',
-        "fpath": f"{evt_id}/{splitext(basename(metadata.get(116)))[0] + '.h5'}",
+        # "fpath": f"{evt_id}/{splitext(basename(metadata.get(116)))[0] + '.h5'}",
         # "fpath_h1": f"{evt_id}/{metadata.get(116)}" if metadata.get() else None,
         # "fpath_h2": f"{evt_id}/{metadata.get(117)}" if metadata.get() else None,
         # "fpath_v": f"{evt_id}/{metadata.get(118)}" if metadata.get() else None,
-        "filter_type": metadata.get(123),
+        "filter_type": metadata.get(114),
 
-        "npass": metadata.get(124),
-        "nroll": metadata.get(125),
-        "hp_h1": metadata.get(126),
-        "hp_h2": metadata.get(127),
-        "lp_h1": metadata.get(128),
-        "lp_h2": metadata.get(129),
-        "luf_h1": metadata.get(131),
-        "luf_h2": metadata.get(132)
+        "npass": metadata.get(115),
+        "nroll": metadata.get(116),
+        "hp_h1": metadata.get(117),
+        "hp_h2": metadata.get(118),
+        "lp_h1": metadata.get(119),
+        "lp_h2": metadata.get(120),
+        "luf_h1": metadata.get(122),
+        "luf_h2": metadata.get(123)
     }
     # simply return the arguments (no processing by default):
     return new_metadata, h1, h2, v
+
+
+# csv arguments for source metadata (e/g. 'header'= None)
+source_metadata_csv_args = {'header': None}
+
+# relative error threshold. After 100 waveforms, when waveforms with error / warnings
+# get higher than this number (relative to the total number of processed waveforms)
+# the program will stop. 0.05 means 5% max of erroneous waveforms
+re_err_th = 1.01
 
 
 ###########################################
@@ -270,14 +242,11 @@ def process_waveforms(
 
 
 def save_waveforms(
-        root_path,
-        metadata: dict,
-        h1: tuple[float, ndarray],
-        h2: tuple[float, ndarray],
-        v: tuple[float, ndarray]
+        file_path,
+        h1: Optional[tuple[float, ndarray]],
+        h2: Optional[tuple[float, ndarray]],
+        v: Optional[tuple[float, ndarray]]
 ):
-
-    file_path = abspath(join(root_path, metadata['fpath']))
     os.makedirs(file_path)
 
     with h5py.File(file_path, "w") as f:
@@ -300,7 +269,8 @@ def save_waveforms(
 
 def _cast_dtype(val: Any, dtype: str):
     if dtype == 'float':
-        assert val is None or isinstance(val, float)
+        assert val is None or isinstance(val, (int, float))
+        val = float(val)
     elif dtype == 'int':
         assert isinstance(val, int)
     elif dtype == 'bool':
@@ -316,15 +286,6 @@ def _cast_dtype(val: Any, dtype: str):
     elif isinstance(dtype, (list, tuple)):
         assert val is None or val in dtype
     return val
-
-
-# csv arguments for source metadata (e/g. 'header'= None)
-source_metadata_csv_args = {}
-
-# relative error threshold. After 100 waveforms, when waveforms with error / warnings
-# get higher than this number (relative to the total number of processed waveforms)
-# the program will stop. 0.05 means 5% max of erroneous waveforms
-re_err_th = 0.05
 
 
 def get_dest_dir_path():
@@ -416,7 +377,7 @@ def main():
         ".resp", ".pz", ".cal",
         # Processing / analysis outputs
         ".fft", ".psa", ".rsp", ".spec", ".rdm", ".rdt",
-        ".mat", ".h5", ".npz",
+        ".mat", ".h5", ".npz", ".py", ".pyc", ".java", ".c",
         # Generic office/text/plots
         ".csv", ".xls", ".xlsx", ".doc", ".docx",
         ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff",
@@ -431,8 +392,8 @@ def main():
         for f in filenames:
             if splitext(f)[1].lower() in invalid_file_extensions:
                 continue
-        candidate = abspath(join(dirpath, f))
-        files.add(candidate)
+            candidate = abspath(join(dirpath, f))
+            files.add(candidate)
 
     pbar = tqdm(
         total=max_rows,
@@ -448,39 +409,70 @@ def main():
     write_header = False
     for metadata_chunk in pd.read_csv(source_metadata_path, **csv_args):
         new_metadata = []
-        for record in metadata_chunk.itertuples(index=False):
+        for record in metadata_chunk.to_dict(orient="records"):
 
             rec_num += 1
             metadata_row = f'metadata row #{rec_num}'
-            record = record._asdict()  # noqa
             pbar.update(1)
 
-            # check returned metadata
-            step_name = "_cast_dtype"
+            step_name = ""
             components = {'h1': None, 'h2': None, 'v': None}
             try:
-                for f in metadata_fields.keys():
-                    step_name = f"_cast_dtype (metadata field '{f}')"
-                    dtype = metadata_fields[f]['dtype']
-                    record[f] = _cast_dtype(record.get(f), dtype)
-                new_metadata.append(record)
-
                 step_name = "find_waveform_paths"
                 h1, h2, v = find_waveforms_path(record, files)
 
                 # read waveforms separately:
-                for comp_name in components:
-                    step_name = f"read_waveform ({comp_name})"
-                    comp_path = {'h1': h1, 'h2': h2, 'v': v}[comp_name]
-                    if comp_path:
-                        components[comp_name] = read_waveform(comp_path, record)
+                f_name = h1 if h1 else h2 if h2 else v if v else None
 
-                # save waveforms
-                step_name = "save_waveforms"  # noqa
-                save_waveforms(dest_waveforms_path, record,
-                               components['h1'],
-                               components['h2'],
-                               components['v'])
+                if f_name is not None:
+                    for comp_name in components:
+                        step_name = f"read_waveform ({comp_name})"
+                        comp_path = {'h1': h1, 'h2': h2, 'v': v}[comp_name]
+                        if comp_path:
+                            components[comp_name] = read_waveform(comp_path, record)
+
+                    # process waveforms
+                    step_name = "save_waveforms"  # noqa
+                    record, h1, h2, v = process_waveforms(
+                        record,
+                        components.get('h1'),
+                        components.get('h2'),
+                        components.get('v')
+                    )
+                    # check record data types:
+                    new_record = {}
+                    for f in record.keys():
+                        if f == 'fault_type':
+                            asd = 9
+                        step_name = f"_cast_dtype (field '{f}')"
+                        dtype = metadata_fields[f]['dtype']
+                        default_val = metadata_fields[f].get('default')
+                        try:
+                            new_record[f] = _cast_dtype(record.get(f, default_val), dtype)
+                        except AssertionError:
+                            raise AssertionError(f'Field {f}: invalid value '
+                                                 f'{str(record.get(f, default_val))}')
+                    new_metadata.append(new_record)
+
+                    # save waveforms
+                    step_name = "save_waveforms"  # noqa
+                    dest_waveforms_path = join(
+                        dest_root_path, splitext(basename(f_name))[0] + ".h5"
+                    )
+                    save_waveforms(dest_waveforms_path, h1, h2, v)
+                    avail_th = None
+                    if h1 is None and h2 is None and v is not None:
+                        avail_th = 'V'
+                    elif h1 is not None and h2 is not None and v is not None:
+                        avail_th = 'HHV'
+                    elif h1 is not None and h2 is not None and v is None:
+                        avail_th = 'HH'
+                    elif (h1 is None) != (h2 is None) and v is not None:
+                        avail_th = 'HV'
+                    elif (h1 is not None) != (h2 is not None) and v is None:
+                        avail_th = 'H'
+                    new_record['avail_time_hist'] = avail_th
+
             except Exception as exc:
                 logging.error(
                     f"Error in {step_name}, {metadata_row}: {exc}"
@@ -489,10 +481,10 @@ def main():
                 continue
 
             # if any waveform is None, something went wring, continue but add an error
-            no_time_series_num = sum(not _ for _ in components.values())
-            if no_time_series_num > 0:
+            _time_series_num = sum(_ is not None for _ in components.values())
+            if _time_series_num < 3:
                 logging.warning(
-                    f"{metadata_row}: {no_time_series_num} of 3 components not created "
+                    f"{metadata_row}: only {_time_series_num} of 3 components created "
                     f"and saved"
                 )
                 errs += 1
@@ -503,16 +495,17 @@ def main():
                 logging.error(msg)
                 sys.exit(1)
 
-        # save metadata:
-        pd.DataFrame(new_metadata).to_csv(
-            dest_metadata_path,
-            date_format="%Y-%m-%dT%H:%M:%S",
-            index=False,
-            mode='a',
-            header=write_header,
-            na_rep=''
-        )
-        write_header = False
+        if new_metadata:
+            # save metadata:
+            pd.DataFrame(new_metadata).to_csv(
+                dest_metadata_path,
+                date_format="%Y-%m-%dT%H:%M:%S",
+                index=False,
+                mode='a',
+                header=write_header,
+                na_rep=''
+            )
+            write_header = False
 
     os.chmod(
         dest_metadata_path,

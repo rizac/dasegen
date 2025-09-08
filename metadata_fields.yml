@@ -30,9 +30,9 @@ rx:
 ry0:
   dtype: float
   help: Horizontal distance (in km) from the top of the rupture measured parallel to strike
-rvolc:
-  dtype: float
-  help: Distance through volcanic zone (km). When missing, it defaults to 0
+#r_volc:
+#  dtype: float
+#  help: Distance through volcanic zone (km). When missing, it defaults to 0
 
 # Rupture related CSV fields:
 
@@ -85,7 +85,7 @@ rake:
     Hint: in case of more components available (e.g. from
     web services), the correct one should be inferred by the user from the rupture,
     or can be chosen randomly if no information is available
-faulting_type:
+fault_type:
   dtype: [0,1,2,3,4]
   help: >-
     Mechanism based on Rake Angle (Style of Faulting, sof). 0: Strike-slip (rake angles:
@@ -215,3 +215,11 @@ luf_h1:
 luf_h2:
   dtype: float
   help: Lowest usable frequency of component H2, in Hz usually as ratio of hp_h1
+
+
+avail_time_hist:
+  dtype: ['H', 'HH', 'HV', 'V', 'HHV']
+  help: >-
+    The available time histories for this recording: H: only one (horizontal 
+    component), HH: the two horizontal components, HV: one horizontal and one vertical,
+    V: only vertical, HHV: all three components (2 horizontal, and the vertical).
