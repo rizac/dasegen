@@ -209,60 +209,47 @@ def process_waveforms(
     # Lowest Usable Freq - H1 (Hz),Lowest Usable Freq - H2 (H2),Lowest Usable Freq - Ave. Component (Hz),PGA (g),PGV (cm/sec),PGD (cm),T0.010S,T0.020S,T0.022S,T0.025S,T0.029S,T0.030S,T0.032S,T0.035S,T0.036S,T0.040S,T0.042S,T0.044S,T0.045S,T0.046S,T0.048S,T0.050S,T0.055S,T0.060S,T0.065S,T0.067S,T0.070S,T0.075S,T0.080S,T0.085S,T0.090S,T0.095S,T0.100S,T0.110S,T0.120S,T0.130S,T0.133S,T0.140S,T0.150S,T0.160S,T0.170S,T0.180S,T0.190S,T0.200S,T0.220S,T0.240S,T0.250S,T0.260S,T0.280S,T0.290S,T0.300S,T0.320S,T0.340S,T0.350S,T0.360S,T0.380S,T0.400S,T0.420S,T0.440S,T0.450S,T0.460S,T0.480S,T0.500S,T0.550S,T0.600S,T0.650S,T0.667S,T0.700S,T0.750S,T0.800S,T0.850S,T0.900S,T0.950S,T1.000S,T1.100S,T1.200S,T1.300S,T1.400S,T1.500S,T1.600S,T1.700S,T1.800S,T1.900S,T2.000S,T2.200S,T2.400S,T2.500S,T2.600S,T2.800S,T3.000S,T3.200S,T3.400S,T3.500S,T3.600S,T3.800S,T4.000S,T4.200S,T4.400S,T4.600S,T4.800S,T5.000S,T5.500S,T6.000S,T6.500S,T7.000S,T7.500S,T8.000S,T8.500S,T9.000S,T9.500S,T10.000S,T11.000S,T12.000S,T13.000S,T14.000S,T15.000S,T20.000S
     # """
     new_metadata = {
-        'evt_id': evt_id,
-        # 'azimuth': metadata.get(54),
-        'repi': metadata["EpiD (km)"],
-        'rhypo': metadata["HypD (km)"],
-        'rjb': metadata["Joyner-Boore Dist. (km)"],
-        'rrup': metadata["ClstD (km)"],
-        'rx': metadata['Rx'],
-        # 'r_y': None,
-        # 'r_volc': None,
-        'evt_time': evt_time,
-        'evt_lat': metadata["Hypocenter Latitude (deg)"],
-        'evt_lon': metadata["Hypocenter Longitude (deg)"],
-        'evt_depth': metadata["Hypocenter Depth (km)"],
-        'mag': metadata["Earthquake Magnitude"],
-        'mag_type': metadata["Magnitude Type"],
-
-        'rup_top_depth': metadata["Depth to Top Of Fault Rupture Model"],
-        'rup_width': metadata["Fault Rupture Width (km)"],
+        'event_id': evt_id,
+        'epicentral_distance': metadata["EpiD (km)"],
+        'hypocentral_distance': metadata["HypD (km)"],
+        'joyner_boore_distance': metadata["Joyner-Boore Dist. (km)"],
+        'rupture_distance': metadata["ClstD (km)"],
+        'fault_normal_distance': metadata['Rx'],
+        'origin_time': evt_time,
+        'event_lat': metadata["Hypocenter Latitude (deg)"],
+        'event_lon': metadata["Hypocenter Longitude (deg)"],
+        'event_depth': metadata["Hypocenter Depth (km)"],
+        'magnitude': metadata["Earthquake Magnitude"],
+        'magnitude_type': metadata["Magnitude Type"],
+        'depth_to_top_of_fault_rupture': metadata["Depth to Top Of Fault Rupture Model"],
+        'fault_rupture_width': metadata["Fault Rupture Width (km)"],
         'strike': metadata["Strike (deg)"],
         'dip': metadata["Dip (deg)"],
         'rake': metadata["Rake Angle (deg)"],
+        'strike2': None,
+        'dip2': None,
+        'rake2': None,
         'fault_type': metadata["Mechanism Based on Rake Angle"],
 
-        'sta_id': sta_id,
-        "backarc": False,  # FIXME check!
-
-        # NOTE: Everything that is at around 77
+        'station_id': sta_id,
         "vs30": metadata["Vs30 (m/s) selected for analysis"],
         "vs30measured": metadata["Measured/Inferred Class"] in {0, "0", 0.0},
-        "sta_lat": metadata["Station Latitude"],
-        "sta_lon": metadata["Station Longitude"],
+        "station_latitude": metadata["Station Latitude"],
+        "station_longitude": metadata["Station Longitude"],
         "z1": metadata["Northern CA/Southern CA - H11 Z1 (m)"],
         "z2pt5": metadata["Northern CA/Southern CA - H11 Z2.5 (m)"],
-
-
-        # "xvf": None,
         "region": 0,
-        "fpeak": None,
-        # "geology": None,
-        "sensor_type": 'A',
-        # "fpath": f"{evt_id}/{splitext(basename(metadata.get(116)))[0] + '.h5'}",
-        # "fpath_h1": f"{evt_id}/{metadata.get(116)}" if metadata.get() else None,
-        # "fpath_h2": f"{evt_id}/{metadata.get(117)}" if metadata.get() else None,
-        # "fpath_v": f"{evt_id}/{metadata.get(118)}" if metadata.get() else None,
-        "filter_type": metadata["Type of Filter"],
 
+        "sensor_type": 'A',
+        "filter_type": metadata["Type of Filter"],
         "npass": metadata["npass"],
         "nroll": metadata["nroll"],
-        "hp_h1": metadata["HP-H1 (Hz)"],
-        "hp_h2": metadata["HP-H2 (Hz)"],
-        "lp_h1": metadata["LP-H1 (Hz)"],
-        "lp_h2": metadata["LP-H2 (Hz)"],
-        "luf_h1": metadata["Lowest Usable Freq - H1 (Hz)"],
-        "luf_h2": metadata["Lowest Usable Freq - H2 (H2)"]
+        "lower_cutoff_frequency_h1": metadata["HP-H1 (Hz)"],
+        "lower_cutoff_frequency_h2": metadata["HP-H2 (Hz)"],
+        "upper_cutoff_frequency_h1": metadata["LP-H1 (Hz)"],
+        "upper_cutoff_frequency_h2": metadata["LP-H2 (Hz)"],
+        "lowest_usable_frequency_h1": metadata["Lowest Usable Freq - H1 (Hz)"],
+        "lowest_usable_frequency_h2": metadata["Lowest Usable Freq - H2 (H2)"]
     }
 
     # correct missing values:
@@ -507,7 +494,7 @@ def main():
                     # save waveforms
                     step_name = "save_waveforms"  # noqa
                     clean_record['file_path'] = join(
-                        str(clean_record['evt_id']),
+                        str(clean_record['event_id']),
                         splitext(basename(f_name))[0] + ".h5"
                     )
                     save_waveforms(join(dest_waveforms_path, clean_record['file_path']),
@@ -524,7 +511,7 @@ def main():
                         avail_th = 'HV'
                     elif (h1 is not None) != (h2 is not None) and v is None:
                         avail_th = 'H'
-                    clean_record['avail_comp'] = avail_th
+                    clean_record['available_components'] = avail_th
 
             except Exception as exc:
                 logging.error(
@@ -533,7 +520,7 @@ def main():
                 errs += 1
                 continue
 
-            # if any waveform is None, something went wring, continue but add an error
+            # if any waveform is None, something went wrong, continue but add an error
             _time_series_num = sum(_ is not None for _ in components.values())
             if _time_series_num < 3:
                 logging.warning(

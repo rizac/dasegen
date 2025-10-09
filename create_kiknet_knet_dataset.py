@@ -212,60 +212,48 @@ def process_waveforms(
     # Lowest Usable Freq - H1 (Hz),Lowest Usable Freq - H2 (H2),Lowest Usable Freq - Ave. Component (Hz),PGA (g),PGV (cm/sec),PGD (cm),T0.010S,T0.020S,T0.022S,T0.025S,T0.029S,T0.030S,T0.032S,T0.035S,T0.036S,T0.040S,T0.042S,T0.044S,T0.045S,T0.046S,T0.048S,T0.050S,T0.055S,T0.060S,T0.065S,T0.067S,T0.070S,T0.075S,T0.080S,T0.085S,T0.090S,T0.095S,T0.100S,T0.110S,T0.120S,T0.130S,T0.133S,T0.140S,T0.150S,T0.160S,T0.170S,T0.180S,T0.190S,T0.200S,T0.220S,T0.240S,T0.250S,T0.260S,T0.280S,T0.290S,T0.300S,T0.320S,T0.340S,T0.350S,T0.360S,T0.380S,T0.400S,T0.420S,T0.440S,T0.450S,T0.460S,T0.480S,T0.500S,T0.550S,T0.600S,T0.650S,T0.667S,T0.700S,T0.750S,T0.800S,T0.850S,T0.900S,T0.950S,T1.000S,T1.100S,T1.200S,T1.300S,T1.400S,T1.500S,T1.600S,T1.700S,T1.800S,T1.900S,T2.000S,T2.200S,T2.400S,T2.500S,T2.600S,T2.800S,T3.000S,T3.200S,T3.400S,T3.500S,T3.600S,T3.800S,T4.000S,T4.200S,T4.400S,T4.600S,T4.800S,T5.000S,T5.500S,T6.000S,T6.500S,T7.000S,T7.500S,T8.000S,T8.500S,T9.000S,T9.500S,T10.000S,T11.000S,T12.000S,T13.000S,T14.000S,T15.000S,T20.000S
     # """
     new_metadata = {
-        'evt_id': metadata['EQ_Code'],
+        'event_id': metadata['EQ_Code'],
         # 'azimuth': metadata.get(54),
-        'repi': metadata["Repi"],
-        'rhypo': metadata["Rhypo"],
-        'rjb': metadata["RJB_0"],
-        'rrup': metadata["Rrup 0"],
-        # 'rx': metadata['Rx'],
-        # 'r_y': None,
-        # 'r_volc': None,
-        'evt_time': metadata["Origin Meta"],
-        'evt_lat': metadata["evLat. Meta"],
-        'evt_lon': metadata["evLong. Meta"],
-        'evt_depth': metadata["Depth. (km) Meta"],
-        'mag': metadata["Earthquake Magnitude"],
-        'mag_type': metadata["JMA_Magtype"],
-
-        # 'rup_top_depth': metadata["Depth to Top Of Fault Rupture Model"],
-        # 'rup_width': metadata["Fault Rupture Width (km)"],
+        'epicentral_distance': metadata["Repi"],
+        'hypocentral_distance': metadata["Rhypo"],
+        'joyner_boore_distance': pd.Series([metadata["RJB_0"], metadata["RJB_1"]]).mean(),  # noqa
+        'rupture_distance': pd.Series([metadata["Rrup 0"], metadata["Rrup 1"]]).mean(),
+        # 'fault_normal_distance': None,
+        'origin_time': metadata["Origin Meta"],
+        'event_lat': metadata["evLat. Meta"],
+        'event_lon': metadata["evLong. Meta"],
+        'event_depth': metadata["Depth. (km) Meta"],
+        'magnitude': metadata["Earthquake Magnitude"],
+        'magnitude_type': metadata["JMA_Magtype"],
+        # 'depth_to_top_of_fault_rupture': None
+        # 'fault_rupture_width': None,
         'strike': metadata["fnet_Strike_0"],
         'dip': metadata["fnet_Dip_0"],
         'rake': metadata["fnet_Rake_0"],
+        'strike2': metadata["fnet_Strike_1"],
+        'dip2': metadata["fnet_Dip_1"],
+        'rake2': metadata["fnet_Rake_1"],
         'fault_type': {'S': 0 ,'N' :1, 'R' : 2}.get(metadata["Focal_mechanism_BA"]),
 
-        'sta_id': metadata["StationCode"],
-        "backarc": False,  # FIXME check!
-
-        # NOTE: Everything that is at around 77
+        'station_id': metadata["StationCode"],
         "vs30": metadata["vs30"],
         "vs30measured": metadata["vs30measured"] in {1, "1", 1.0},
-        "sta_lat": metadata['StationLat.'],
-        "sta_lon": metadata['StationLong.'],
+        "station_lat": metadata['StationLat.'],
+        "station_lon": metadata['StationLong.'],
         "z1": metadata["z1pt0"],
         "z2pt5": metadata["z2pt5"],
-
-
-        # "xvf": None,
         "region": 0,
-        "fpeak": None,
-        # "geology": None,
-        "sensor_type": 'A',
-        # "fpath": f"{evt_id}/{splitext(basename(metadata.get(116)))[0] + '.h5'}",
-        # "fpath_h1": f"{evt_id}/{metadata.get(116)}" if metadata.get() else None,
-        # "fpath_h2": f"{evt_id}/{metadata.get(117)}" if metadata.get() else None,
-        # "fpath_v": f"{evt_id}/{metadata.get(118)}" if metadata.get() else None,
-        "filter_type": "A",
 
+        "sensor_type": 'A',
+        "filter_type": "A",
         "npass": 4,  # 4th-order acausal butterworth filter,
         "nroll": 0,  # metadata["nroll"],
-        "hp_h1": metadata["fc0"],  # FIXME CHECK THIS
-        "hp_h2": metadata["fc0"],
-        "lp_h1": metadata["fc1"],
-        "lp_h2": metadata["fc1"],
-        "luf_h1": metadata["fc0"],
-        "luf_h2": metadata["fc1"]  # if not sure, leave None
+        "lower_cutoff_frequency_h1": metadata["fc0"],  # FIXME CHECK THIS  hp_h1
+        "lower_cutoff_frequency_h2": metadata["fc0"],
+        "upper_cutoff_frequency_h1": metadata["fc1"],
+        "upper_cutoff_frequency_h2": metadata["fc1"],
+        "lowest_usable_frequency_h1": metadata["fc0"],
+        "lowest_usable_frequency_h2": metadata["fc1"]  # if not sure, leave None
     }
 
     # correct missing values:
@@ -510,7 +498,7 @@ def main():
                     # save waveforms
                     step_name = "save_waveforms"  # noqa
                     clean_record['file_path'] = join(
-                        str(clean_record['evt_id']),
+                        str(clean_record['event_id']),
                         splitext(basename(f_name))[0] + ".h5"
                     )
                     save_waveforms(join(dest_waveforms_path, clean_record['file_path']),
@@ -527,7 +515,7 @@ def main():
                         avail_th = 'HV'
                     elif (h1 is not None) != (h2 is not None) and v is None:
                         avail_th = 'H'
-                    clean_record['avail_comp'] = avail_th
+                    clean_record['available_components'] = avail_th
 
             except Exception as exc:
                 logging.error(
@@ -536,7 +524,7 @@ def main():
                 errs += 1
                 continue
 
-            # if any waveform is None, something went wring, continue but add an error
+            # if any waveform is None, something went wrong, continue but add an error
             _time_series_num = sum(_ is not None for _ in components.values())
             if _time_series_num < 3:
                 logging.warning(
