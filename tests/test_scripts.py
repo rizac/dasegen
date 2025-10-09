@@ -33,16 +33,39 @@ def setup_teardown():
 
 
 @patch("create_ngawest_dataset.get_dest_dir_path", return_value=root)
+@patch("create_ngawest_dataset.re_err_th", 1.01)
 def test_nga_west2(mocked_dest_dir):
     # Save originals
     original_argv = sys.argv
     original_stdout = sys.stdout
 
     try:
+
+        # Patch argv and stdout
+        sys.argv = [
+            'create_ngawest_dataset.py'
+        ]
+        sys.stdout = StringIO()
+
+        # Run main
+
+        create_ngawest_dataset.main()
+
+    except SystemExit as err:
+        assert err.args[0] == 1
+    finally:
+        # Restore originals
+        sys.argv = original_argv
+        sys.stdout = original_stdout
+
+
+    try:
+
+
         # Patch argv and stdout
         sys.argv = [
             'create_ngawest_dataset.py',
-            join(dirname(__file__), "Metadata_Avail.CSV"),
+            join(dirname(dirname(__file__)), 'source_data', "ngawest2", "ngawest2_metadata.csv"),
             dirname(__file__)
         ]
         sys.stdout = StringIO()
@@ -51,6 +74,12 @@ def test_nga_west2(mocked_dest_dir):
 
         create_ngawest_dataset.main()
 
+
+
+    except SystemExit as err:
+        assert err.args[0] == 0
+
+        assert isdir(join(root, 'waveforms'))
         # Get printed output
         output = sys.stdout.getvalue()
 

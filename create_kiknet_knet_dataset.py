@@ -49,6 +49,8 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 import glob
+from obspy import read
+from io import BytesIO
 from tqdm import tqdm
 
 
@@ -69,32 +71,58 @@ def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
         datetime and categorical values can also be None (e.g., if the Metadata cell
         was empty)
     """
+    file_h1 = []
+    file_h2 = []
+    file_v = []
 
-    # get the path stored in the metadata file (just an example):
-    candidates: dict[str, list[str]] = {
-        metadata['fpath_h1']: [],
-        metadata['fpath_h2']: [],
-        metadata['fpath_v']: []
-    }
+    st_id = metadata['StationCode']
+    orig_time = metadata['Origin_MEta']
+    # Format as YYMMDDHHMMSS
+    orig_time_str = orig_time.strftime("%y%m%d%H%M%S")
+    name = f'{st_id}{orig_time_str}'
 
-    for metadata_path, files in candidates.items():
-        if not metadata_path:
+    for file_abs_path in waveform_file_paths:
+        bname = basename(file_abs_path)
+        ext = splitext(bname)[1]
+        if ext == '.UD2' and bname.startswith(name):  # UD1: borehole
+            file_h1.append(file_abs_path)
             continue
-        for file_abs_path in waveform_file_paths:
-            if metadata_path in basename(file_abs_path):
-                files.append(file_abs_path)
+        if ext == '.NS2' and bname.startswith(name):
+            file_h2.append(file_abs_path)
+            continue
+        if ext == '.EW2' and bname.startswith(name):
+            file_v.append(file_abs_path)
+            continue
 
-    return tuple(  # noqa
-        None if not k or len(v) != 1 else v[0] for k, v in candidates.items()
+    return (
+        file_h1[0] if len(file_h1) == 1 else None,
+        file_h2[0] if len(file_h2) == 1 else None,
+        file_v[0] if len(file_v) == 1 else None
     )
 
 
 def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
     """Read a waveform from a file path. Modify according to the format you stored
     your time histories"""
-    import obspy   # needs to be installed first # noqa
-    trace = obspy.read(full_abs_path, format='KNET')[0]
-    return trace.stats.delta, trace.data
+    scale_nom, scale_denom, dt = None, None, None
+    with open(full_abs_path, "rb") as fp:
+        for line in fp:
+            if line.startswith(b'Sampling Freq(Hz)'):
+                dt = 1.0 / float(
+                    line.strip().lower().split(b' ')[-1].removesuffix(b'hz'))
+            elif line.startswith(b'Scale Factor'):
+                scale_str = line.split(b'  ', 1)[1].strip().split(b'/')
+                scale_nom = float(scale_str[0][:-5])
+                scale_denom = float(scale_str[1])
+            elif line.startswith(b'Memo'):
+                if any(_ is None for _ in (scale_nom, scale_denom, dt)):
+                    raise ValueError('dt /scale nom / scale denom not found')
+                break
+        rest = fp.read()
+        data = np.fromstring(rest, sep=" ", dtype=np.float32)
+        # data = np.loadtxt(fp, dtype=np.float32)
+        data *= scale_nom / scale_denom / 100.  # the 100. is to convert to m/s**2
+    return dt, data
 
 
 def process_waveforms(
@@ -133,12 +161,123 @@ def process_waveforms(
     :param h2: second horizontal component, same format as h1
     :param v: vertical component, same format as h1
     """
+    n, s, l, c =
+    # compute arrival time (correct)
+    year = metadata['YEAR']
+    month_day = str(metadata['MODY'])
+    if len(month_day) == 3:
+        month_day = '0' + month_day
+    hour_min = str(metadata['HRMN'])
+    if len(hour_min) == 3:
+        hour_min = '0' + hour_min
+    assert len(month_day) == len(hour_min) == 4, 'month_day or hour_min invalid'
+    month, day = int(month_day[:2]), int(month_day[2:])
+    hour, min = int(hour_min[:2]), int(hour_min[2:])
+    evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
+    evt_id = metadata.get('EQID')
+    sta_id = metadata["Station ID  No."]
+    if sta_id == '99999':
+        sta_id = None
+    # """
+    # Record Sequence Number,EQID,Earthquake Name,YEAR,MODY,HRMN,Station Name,
+    # Station Sequence Number,Station ID  No.,Earthquake Magnitude,Magnitude Type,
+    # Magnitude Uncertainty: Kagan Model,
+    # Magnitude Uncertainty: Statistical,Magnitude Sample Size,
+    # Magnitude Uncertainty: Study Class,Mo (dyne.cm),Strike (deg),Dip (deg),
+    # Rake Angle (deg),Mechanism Based on Rake Angle,P-plunge (deg),P-trend (deg),T-plunge (deg),
+    # T-trend (deg),Hypocenter Latitude (deg),Hypocenter Longitude (deg),
+    # Hypocenter Depth (km),
+    # Coseismic Surface Rupture: 1=Yes; 0=No;    -999=Unknown,Coseismic Surface Rupture (Including Inferred),Basis for Inference of Surface Rupture,Finite Rupture Model: 1=Yes;  0=No,
+    # Depth to Top Of Fault Rupture Model,Fault Rupture Length for Calculation of Ry (km),
+    # Fault Rupture Width (km),Fault Rupture Area (km^2),Avg Fault Disp (cm),Rise Time (s),
+    # Avg Slip Velocity (cm/s),Static Stress Drop (bars),Preferred Rupture Velocity (km/s),
+    # Average Vr/Vs,Percent of Moment Release in the Top 5 Km of Crust,
+    # Existence of Shallow Asperity: 0=No; 1=Yes,Depth to Top of Shallowest Asperity (km),
+    # Earthquake in Extensional Regime: 1=Yes; 0=No,Fault Name,Slip Rate (mm/Yr),
+    # EpiD (km),HypD (km),Joyner-Boore Dist. (km),Campbell R Dist. (km),RmsD (km),
+    # ClstD (km),Rx,FW/HW Indicator,Source to Site Azimuth (deg),X,
+    # Theta.D (deg),SSGA (Strike Slip),Y,
+    # Phi.D (deg),SSGA (Dip Slip),s,d,ctildepr,Unused Column,D,Rfn.Hyp,Rfp.Hyp,Unused Column,
+    # Unused Column,Unused Column,T,GMX's C1,GMX's C2,GMX's C3,Campbell's GEOCODE,Bray and Rodriguez-Marek SGS,
+    # Depth,Preferred NEHRP Based on Vs30,Vs30 (m/s) selected for analysis,
+    # Column Not Used,Measured/Inferred Class,Sigma of Vs30 (in natural log Units),NEHRP Classification from CGS's Site Condition Map,
+    # Geological Unit,Geology,Owner,Station Latitude,Station Longitude,STORIES,
+    # INSTLOC,Depth to Basement Rock,Site Visited,NGA Type,Age,Grain Size,Depositional History,
+    # Northern CA/Southern CA - H11 Z1 (m),Northern CA/Southern CA - H11 Z1.5 (m),Northern CA/Southern CA - H11 Z2.5 (m),Northern CA/Southern CA - S4 Z1 (m),Northern CA/Southern CA - S4 Z1.5 (m),
+    # Northern CA/Southern CA - S4 Z2.5 (m),Depth to Franciscan Rock (km),
+    # Basin,h (m),hnorm (m),Rsbe (m),Rcebe (m),Rebe (m),Rsbe1 (m),File Name (Horizontal 1),
+    # File Name (Horizontal 2),File Name (Vertical),H1 azimth (degrees),H2 azimith (degrees),
+    # Type of Recording,Instrument Model,PEA Processing Flag,
+    # Type of Filter,npass,nroll,HP-H1 (Hz),HP-H2 (Hz),LP-H1 (Hz),LP-H2 (Hz),Factor,
+    # Lowest Usable Freq - H1 (Hz),Lowest Usable Freq - H2 (H2),Lowest Usable Freq - Ave. Component (Hz),PGA (g),PGV (cm/sec),PGD (cm),T0.010S,T0.020S,T0.022S,T0.025S,T0.029S,T0.030S,T0.032S,T0.035S,T0.036S,T0.040S,T0.042S,T0.044S,T0.045S,T0.046S,T0.048S,T0.050S,T0.055S,T0.060S,T0.065S,T0.067S,T0.070S,T0.075S,T0.080S,T0.085S,T0.090S,T0.095S,T0.100S,T0.110S,T0.120S,T0.130S,T0.133S,T0.140S,T0.150S,T0.160S,T0.170S,T0.180S,T0.190S,T0.200S,T0.220S,T0.240S,T0.250S,T0.260S,T0.280S,T0.290S,T0.300S,T0.320S,T0.340S,T0.350S,T0.360S,T0.380S,T0.400S,T0.420S,T0.440S,T0.450S,T0.460S,T0.480S,T0.500S,T0.550S,T0.600S,T0.650S,T0.667S,T0.700S,T0.750S,T0.800S,T0.850S,T0.900S,T0.950S,T1.000S,T1.100S,T1.200S,T1.300S,T1.400S,T1.500S,T1.600S,T1.700S,T1.800S,T1.900S,T2.000S,T2.200S,T2.400S,T2.500S,T2.600S,T2.800S,T3.000S,T3.200S,T3.400S,T3.500S,T3.600S,T3.800S,T4.000S,T4.200S,T4.400S,T4.600S,T4.800S,T5.000S,T5.500S,T6.000S,T6.500S,T7.000S,T7.500S,T8.000S,T8.500S,T9.000S,T9.500S,T10.000S,T11.000S,T12.000S,T13.000S,T14.000S,T15.000S,T20.000S
+    # """
+    new_metadata = {
+        'evt_id': metadata['EQ_Code'],
+        # 'azimuth': metadata.get(54),
+        'repi': metadata["Repi"],
+        'rhypo': metadata["Rhypo"],
+        'rjb': metadata["RJB_0"],
+        'rrup': metadata["Rrup 0"],
+        # 'rx': metadata['Rx'],
+        # 'r_y': None,
+        # 'r_volc': None,
+        'evt_time': metadata["Origin Meta"],
+        'evt_lat': metadata["evLat. Meta"],
+        'evt_lon': metadata["evLong. Meta"],
+        'evt_depth': metadata["Depth. (km) Meta"],
+        'mag': metadata["Earthquake Magnitude"],
+        'mag_type': metadata["JMA_Magtype"],
+
+        # 'rup_top_depth': metadata["Depth to Top Of Fault Rupture Model"],
+        # 'rup_width': metadata["Fault Rupture Width (km)"],
+        'strike': metadata["fnet_Strike_0"],
+        'dip': metadata["fnet_Dip_0"],
+        'rake': metadata["fnet_Rake_0"],
+        'fault_type': {'S': 0 ,'N' :1, 'R' : 2}.get(metadata["Focal_mechanism_BA"]),
+
+        'sta_id': metadata["StationCode"],
+        "backarc": False,  # FIXME check!
+
+        # NOTE: Everything that is at around 77
+        "vs30": metadata["vs30"],
+        "vs30measured": metadata["vs30measured"] in {1, "1", 1.0},
+        "sta_lat": metadata['StationLat.'],
+        "sta_lon": metadata['StationLong.'],
+        "z1": metadata["z1pt0"],
+        "z2pt5": metadata["z2pt5"],
+
+
+        # "xvf": None,
+        "region": 0,
+        "fpeak": None,
+        # "geology": None,
+        "sensor_type": 'A',
+        # "fpath": f"{evt_id}/{splitext(basename(metadata.get(116)))[0] + '.h5'}",
+        # "fpath_h1": f"{evt_id}/{metadata.get(116)}" if metadata.get() else None,
+        # "fpath_h2": f"{evt_id}/{metadata.get(117)}" if metadata.get() else None,
+        # "fpath_v": f"{evt_id}/{metadata.get(118)}" if metadata.get() else None,
+        "filter_type": "A",
+
+        "npass": 4,  # 4th-order acausal butterworth filter,
+        "nroll": 0,  # metadata["nroll"],
+        "hp_h1": metadata["fc0"],  # FIXME CHECK THIS
+        "hp_h2": metadata["fc0"],
+        "lp_h1": metadata["fc1"],
+        "lp_h2": metadata["fc1"],
+        "luf_h1": metadata["fc0"],
+        "luf_h2": metadata["fc1"]  # if not sure, leave None
+    }
+
+    # correct missing values:
+    if new_metadata['mag_type'] == 'U':
+        new_metadata['mag_type'] = None
+
     # simply return the arguments (no processing by default):
-    return metadata, h1, h2, v
+    return new_metadata, h1, h2, v
 
 
 # csv arguments for source metadata (e/g. 'header'= None)
-source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
+source_metadata_csv_args = {'header=': [3]}  # {'header': None} for CSVs with no header
 
 # relative error threshold. After 100 waveforms, when waveforms with error / warnings
 # get higher than this number (relative to the total number of processed waveforms)
@@ -181,8 +320,8 @@ def save_waveforms(
 
 def _cast_dtype(val: Any, dtype: str):
     if dtype == 'int':
-        assert isinstance(val, int)
-        return val
+        assert isinstance(val, int) or (isinstance(val, float) and int(val) == val)
+        return int(val)
     elif dtype == 'bool':
         if val in {0, 1}:
             val = bool(val)
@@ -194,6 +333,8 @@ def _cast_dtype(val: Any, dtype: str):
             assert isinstance(val, datetime)
         elif val == 'str':
             assert isinstance(val, str)
+        elif val == 'float':
+            assert isinstance(val, float)
         elif isinstance(dtype, (list, tuple)):
             assert val in dtype
     return val
@@ -214,7 +355,9 @@ def main():
         source_waveforms_path = sys.argv[2]
 
     err_noarg = not source_metadata_path or not source_waveforms_path
-    err_no_file = not isfile(source_metadata_path) or not isdir(source_waveforms_path)
+    err_no_file = False
+    if not err_noarg:
+        err_no_file = not isfile(source_metadata_path) or not isdir(source_waveforms_path)
 
     if err_no_file or err_noarg:
         print(f'Error: {"invalid arguments" if err_noarg else "invalid file/dir path"}',
@@ -227,13 +370,19 @@ def main():
               f"histories in ./waveforms (. refers to this script current directory)")
         sys.exit(1)
 
+    dest_root_path = get_dest_dir_path()
+    dest_metadata_path = join(dest_root_path, splitext(basename(__file__))[0] + ".csv")
+    dest_waveforms_path = join(dest_root_path, "waveforms")
+
+    if not isdir(dest_root_path):
+        os.makedirs(dest_root_path)
+
+    log_dest_path = dest_metadata_path + ".log"
+    setup_logging(log_dest_path)
+
     logging.info(f'Script: {" ".join([sys.executable] + sys.argv)}')
     print(f"Source metadata path: {source_metadata_path}")
     print(f"Source waveforms path: {source_waveforms_path}")
-
-    dest_root_path = get_dest_dir_path()
-    dest_metadata_path = join(dest_root_path, "metadata.csv")
-    dest_waveforms_path = join(dest_root_path, "waveforms")
 
     existing = isfile(dest_metadata_path) or isdir(dest_waveforms_path)
     if existing:
@@ -269,13 +418,6 @@ def main():
 
     with open(source_metadata_path, 'rb') as f:
         max_rows = sum(1 for _ in f) - 1  # Subtract 1 for header
-
-    log_dest_path = dest_metadata_path + ".log"
-    logging.basicConfig(
-        filename=log_dest_path,
-        level=logging.INFO,
-        format='%(message)s'  # minimal: just the message
-    )
 
     print(f'Scanning {source_waveforms_path}')
 
@@ -428,6 +570,16 @@ def main():
         )
     pbar.close()
     sys.exit(0)
+
+
+def setup_logging(filename):
+    logger = logging.getLogger()  # root logger
+    # if not logger.handlers:
+    handler = logging.FileHandler(filename, mode='w')
+    formatter = logging.Formatter('%(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
 
 if __name__ == "__main__":
