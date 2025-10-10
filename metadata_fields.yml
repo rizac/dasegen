@@ -77,7 +77,7 @@ dip:
   help: >-
     the angle of the fault relative to the horizontal (deg) in [0, 90]. 
     If the actual fault plane could not be determined in the source metadata, the same
-    value for the conjugate plane is stored in dip2. Otherwise, dip2 is NaN or None.
+    value for the conjugate plane is stored in dip2. Otherwise, dip2 is NaN or None
 dip2:
   dtype: float
   help: The dip for one of the possible fault planes, or N/A (see dip help for details)
@@ -87,7 +87,7 @@ rake:
     the direction the hanging wall moves, relative to the fault strike (deg) in 
     [-180, 180]. If the actual fault plane could not be available in the source metadata, 
     the same value for the conjugate plane is stored in rake2. Otherwise, rake2 is NaN or 
-    None.
+    None
 rake2:
   dtype: float
   help: The dip for one of the possible fault planes, or N/A (see dip help for details)
@@ -97,7 +97,7 @@ strike:
     Strike angle in [0, 360] of the fault plane used to approximate the causative fault 
     surface. If the actual fault plane could not be available in the source metadata, the
     same value for the conjugate plane is stored in strike2. Otherwise, strike2 is NaN or 
-    None.
+    None
 strike2:
   dtype: float
   help: The dip for one of the possible fault planes, or N/A (see dip help for details)

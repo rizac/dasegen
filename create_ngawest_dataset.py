@@ -56,6 +56,11 @@ from tqdm import tqdm
 # Editable file part: please read carefully and implement your routine #
 ########################################################################
 
+def accept_file(file_path) -> bool:
+    """Tell whether the given source file can be accepted as time history file"""
+    return splitext(file_path)[1].startswith('.AT')
+
+
 def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
         -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Get the full source paths of the waveforms (h1, h2 and v components, in this
@@ -69,32 +74,34 @@ def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
         datetime and categorical values can also be None (e.g., if the Metadata cell
         was empty)
     """
-    file_h1 = []
-    file_h2 = []
-    file_v = []
+    metadata_paths = [
+        ('' if pd.isna(metadata["fpath_h1"]) else metadata["fpath_h1"]).strip(),
+        ('' if pd.isna(metadata["fpath_h2"]) else metadata["fpath_h2"]).strip(),
+        ('' if pd.isna(metadata["fpath_v"]) else metadata["fpath_v"]).strip()
+    ]
+    file_paths =[[], [], []]
 
-    rsn = metadata['Record Sequence Number']
+    rsn = str(metadata['Record Sequence Number'])
+
+    if '4152' == str(rsn):
+        asd = 9
 
     for file_abs_path in waveform_file_paths:
         bname = basename(file_abs_path)
-        if pd.notna(metadata["fpath_h1"]) and \
-                bname.endswith(f'{rsn}_{metadata["fpath_h1"].strip()}'):
-            file_h1.append(file_abs_path)
-            continue
-        if pd.notna(metadata["fpath_h2"]) and \
-                bname.endswith(f'{rsn}_{metadata["fpath_h2"].strip()}'):
-            file_h2.append(file_abs_path)
-            continue
-        if pd.notna(metadata["fpath_v"]) and \
-                bname.endswith(f'{rsn}_{metadata["fpath_v"].strip()}'):
-            file_v.append(file_abs_path)
-            continue
+        for i in range(len(metadata_paths)):
+            metadata_path = metadata_paths[i]
+            if not metadata_path or not bname:
+                continue
+            metadata_path = f'{rsn}_{metadata_path}'
+            if bname.startswith('RSN_'):
+                metadata_path = f'RSN_{metadata_path}'
+            elif bname.startswith('RSN'):
+                metadata_path = f'RSN{metadata_path}'
+            if metadata_path == bname:
+                file_paths[i].append(file_abs_path)
+                continue
 
-    return (
-        file_h1[0] if len(file_h1) == 1 else None,
-        file_h2[0] if len(file_h2) == 1 else None,
-        file_v[0] if len(file_v) == 1 else None
-    )
+    return tuple(_[0] if len(_) == 1 else None for _ in file_paths)
 
 
 def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
@@ -253,8 +260,8 @@ def process_waveforms(
     }
 
     # correct missing values:
-    if new_metadata['mag_type'] == 'U':
-        new_metadata['mag_type'] = None
+    if new_metadata['magnitude_type'] == 'U':
+        new_metadata['magnitude_type'] = None
 
     # simply return the arguments (no processing by default):
     return new_metadata, h1, h2, v
@@ -405,32 +412,12 @@ def main():
 
     print(f'Scanning {source_waveforms_path}')
 
-    invalid_file_extensions = {
-        # Metadata / headers
-        ".sta", ".hdr", ".inf", ".log", ".meta", ".xml", ".json", ".yml",
-        # Event catalogs / parameters
-        ".cat", ".hyp", ".pha", ".sum",
-        # Response / instrument files
-        ".resp", ".pz", ".cal",
-        # Processing / analysis outputs
-        ".fft", ".psa", ".rsp", ".spec", ".rdm", ".rdt",
-        ".mat", ".h5", ".npz", ".py", ".pyc", ".java", ".c",
-        # Generic office/text/plots
-        ".csv", ".xls", ".xlsx", ".doc", ".docx",
-        ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff",
-        # Compression / archives
-        ".zip", ".gz", ".tgz", ".bz2", ".xz", ".tar", ".7z",
-        # Hidden macOS / Unix files
-        ".DS_Store", ".AppleDouble", ".Spotlight-V100",
-    }
-
     files = set()
     for dirpath, dirnames, filenames in os.walk(source_waveforms_path):
         for f in filenames:
-            if splitext(f)[1].lower() in invalid_file_extensions:
-                continue
             candidate = abspath(join(dirpath, f))
-            files.add(candidate)
+            if accept_file(candidate):
+                files.add(candidate)
 
     print(f'Found {len(files)} file(s) as time history candidates')
     pbar = tqdm(

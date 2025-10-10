@@ -49,7 +49,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 import glob
-from obspy import read
+# from obspy import read
 from io import BytesIO
 from tqdm import tqdm
 
@@ -57,6 +57,11 @@ from tqdm import tqdm
 ########################################################################
 # Editable file part: please read carefully and implement your routine #
 ########################################################################
+
+def accept_file(file_path) -> bool:
+    """Tell whether the given source file can be accepted as time history file"""
+    return splitext(file_path)[1] in {'.UD2', '.NS2', '.EW2'}  # with *1 => borehole
+
 
 def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
         -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -409,32 +414,12 @@ def main():
 
     print(f'Scanning {source_waveforms_path}')
 
-    invalid_file_extensions = {
-        # Metadata / headers
-        ".sta", ".hdr", ".inf", ".log", ".meta", ".xml", ".json", ".yml",
-        # Event catalogs / parameters
-        ".cat", ".hyp", ".pha", ".sum",
-        # Response / instrument files
-        ".resp", ".pz", ".cal",
-        # Processing / analysis outputs
-        ".fft", ".psa", ".rsp", ".spec", ".rdm", ".rdt",
-        ".mat", ".h5", ".npz", ".py", ".pyc", ".java", ".c",
-        # Generic office/text/plots
-        ".csv", ".xls", ".xlsx", ".doc", ".docx",
-        ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff",
-        # Compression / archives
-        ".zip", ".gz", ".tgz", ".bz2", ".xz", ".tar", ".7z",
-        # Hidden macOS / Unix files
-        ".DS_Store", ".AppleDouble", ".Spotlight-V100",
-    }
-
     files = set()
     for dirpath, dirnames, filenames in os.walk(source_waveforms_path):
         for f in filenames:
-            if splitext(f)[1].lower() in invalid_file_extensions:
-                continue
             candidate = abspath(join(dirpath, f))
-            files.add(candidate)
+            if accept_file(candidate):
+                files.add(candidate)
 
     print(f'Found {len(files)} file(s) as time history candidates')
     pbar = tqdm(
