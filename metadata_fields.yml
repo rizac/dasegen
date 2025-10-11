@@ -18,7 +18,7 @@ epicentral_distance:
 rupture_distance:
   dtype: float
   help: rupture_distance (aka rrup, in km).
-joiner_boore_distance:
+joyner_boore_distance:
   dtype: float
   help: Joyner-Boore distance (aka rjb, in km)
 hypocentral_distance:
@@ -47,7 +47,7 @@ event_id:
 origin_time:
   dtype: datetime
   help: the event origin time (as ISO formatted string, e.g. 2006-03-31T00:12:24)
-eventt_latitude:
+event_latitude:
   dtype: float
   help: Event latitude (hypocenter latitude, in deg) in [-90, 90]
 event_longitude:
