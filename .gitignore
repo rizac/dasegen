@@ -7,7 +7,7 @@ __pycache__/
 .DS_Store
 tests/*.CSV
 tests/*.csv
-/source_data/
+tests/source_data/
 
 # C extensions
 *.so
@@ -214,3 +214,4 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+/tests/source_data/

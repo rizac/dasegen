@@ -51,6 +51,7 @@ import numpy as np
 import glob
 # from obspy import read
 from io import BytesIO
+import math
 from tqdm import tqdm
 
 
@@ -60,7 +61,7 @@ from tqdm import tqdm
 
 def accept_file(file_path) -> bool:
     """Tell whether the given source file can be accepted as time history file"""
-    return splitext(file_path)[1] in {'.UD2', '.NS2', '.EW2'}  # with *1 => borehole
+    return 'HYG012' in file_path and splitext(file_path)[1] in {'.UD2', '.NS2', '.EW2', '.UD', '.NS', '.EW'}  # with *1 => borehole  # FIXME
 
 
 def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
@@ -81,22 +82,27 @@ def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
     file_v = []
 
     st_id = metadata['StationCode']
-    orig_time = metadata['Origin_MEta']
+    orig_time = metadata['RecordTime']
     # Format as YYMMDDHHMMSS
-    orig_time_str = orig_time.strftime("%y%m%d%H%M%S")
+    if isinstance(orig_time, str):
+        orig_time = datetime.fromisoformat(orig_time)
+    orig_time_str = orig_time.strftime("%y%m%d%H%M")
     name = f'{st_id}{orig_time_str}'
 
     for file_abs_path in waveform_file_paths:
         bname = basename(file_abs_path)
-        ext = splitext(bname)[1]
-        if ext == '.UD2' and bname.startswith(name):  # UD1: borehole
-            file_h1.append(file_abs_path)
+        dir_bname = basename(dirname(file_abs_path))
+        if dir_bname != str(metadata['EQ_Code']) or not bname.startswith(name):
             continue
-        if ext == '.NS2' and bname.startswith(name):
+        ext = splitext(bname)[1]
+        if ext in ('.UD', '.UD2'):  # UD1: borehole
+            file_v.append(file_abs_path)
+            continue
+        if ext in ('.NS', '.NS2'):  # see note above
             file_h2.append(file_abs_path)
             continue
-        if ext == '.EW2' and bname.startswith(name):
-            file_v.append(file_abs_path)
+        if ext in ('.EW', '.EW2'):  # see note above
+            file_h1.append(file_abs_path)
             continue
 
     return (
@@ -166,56 +172,12 @@ def process_waveforms(
     :param h2: second horizontal component, same format as h1
     :param v: vertical component, same format as h1
     """
-    n, s, l, c =
-    # compute arrival time (correct)
-    year = metadata['YEAR']
-    month_day = str(metadata['MODY'])
-    if len(month_day) == 3:
-        month_day = '0' + month_day
-    hour_min = str(metadata['HRMN'])
-    if len(hour_min) == 3:
-        hour_min = '0' + hour_min
-    assert len(month_day) == len(hour_min) == 4, 'month_day or hour_min invalid'
-    month, day = int(month_day[:2]), int(month_day[2:])
-    hour, min = int(hour_min[:2]), int(hour_min[2:])
-    evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
-    evt_id = metadata.get('EQID')
-    sta_id = metadata["Station ID  No."]
-    if sta_id == '99999':
-        sta_id = None
-    # """
-    # Record Sequence Number,EQID,Earthquake Name,YEAR,MODY,HRMN,Station Name,
-    # Station Sequence Number,Station ID  No.,Earthquake Magnitude,Magnitude Type,
-    # Magnitude Uncertainty: Kagan Model,
-    # Magnitude Uncertainty: Statistical,Magnitude Sample Size,
-    # Magnitude Uncertainty: Study Class,Mo (dyne.cm),Strike (deg),Dip (deg),
-    # Rake Angle (deg),Mechanism Based on Rake Angle,P-plunge (deg),P-trend (deg),T-plunge (deg),
-    # T-trend (deg),Hypocenter Latitude (deg),Hypocenter Longitude (deg),
-    # Hypocenter Depth (km),
-    # Coseismic Surface Rupture: 1=Yes; 0=No;    -999=Unknown,Coseismic Surface Rupture (Including Inferred),Basis for Inference of Surface Rupture,Finite Rupture Model: 1=Yes;  0=No,
-    # Depth to Top Of Fault Rupture Model,Fault Rupture Length for Calculation of Ry (km),
-    # Fault Rupture Width (km),Fault Rupture Area (km^2),Avg Fault Disp (cm),Rise Time (s),
-    # Avg Slip Velocity (cm/s),Static Stress Drop (bars),Preferred Rupture Velocity (km/s),
-    # Average Vr/Vs,Percent of Moment Release in the Top 5 Km of Crust,
-    # Existence of Shallow Asperity: 0=No; 1=Yes,Depth to Top of Shallowest Asperity (km),
-    # Earthquake in Extensional Regime: 1=Yes; 0=No,Fault Name,Slip Rate (mm/Yr),
-    # EpiD (km),HypD (km),Joyner-Boore Dist. (km),Campbell R Dist. (km),RmsD (km),
-    # ClstD (km),Rx,FW/HW Indicator,Source to Site Azimuth (deg),X,
-    # Theta.D (deg),SSGA (Strike Slip),Y,
-    # Phi.D (deg),SSGA (Dip Slip),s,d,ctildepr,Unused Column,D,Rfn.Hyp,Rfp.Hyp,Unused Column,
-    # Unused Column,Unused Column,T,GMX's C1,GMX's C2,GMX's C3,Campbell's GEOCODE,Bray and Rodriguez-Marek SGS,
-    # Depth,Preferred NEHRP Based on Vs30,Vs30 (m/s) selected for analysis,
-    # Column Not Used,Measured/Inferred Class,Sigma of Vs30 (in natural log Units),NEHRP Classification from CGS's Site Condition Map,
-    # Geological Unit,Geology,Owner,Station Latitude,Station Longitude,STORIES,
-    # INSTLOC,Depth to Basement Rock,Site Visited,NGA Type,Age,Grain Size,Depositional History,
-    # Northern CA/Southern CA - H11 Z1 (m),Northern CA/Southern CA - H11 Z1.5 (m),Northern CA/Southern CA - H11 Z2.5 (m),Northern CA/Southern CA - S4 Z1 (m),Northern CA/Southern CA - S4 Z1.5 (m),
-    # Northern CA/Southern CA - S4 Z2.5 (m),Depth to Franciscan Rock (km),
-    # Basin,h (m),hnorm (m),Rsbe (m),Rcebe (m),Rebe (m),Rsbe1 (m),File Name (Horizontal 1),
-    # File Name (Horizontal 2),File Name (Vertical),H1 azimth (degrees),H2 azimith (degrees),
-    # Type of Recording,Instrument Model,PEA Processing Flag,
-    # Type of Filter,npass,nroll,HP-H1 (Hz),HP-H2 (Hz),LP-H1 (Hz),LP-H2 (Hz),Factor,
-    # Lowest Usable Freq - H1 (Hz),Lowest Usable Freq - H2 (H2),Lowest Usable Freq - Ave. Component (Hz),PGA (g),PGV (cm/sec),PGD (cm),T0.010S,T0.020S,T0.022S,T0.025S,T0.029S,T0.030S,T0.032S,T0.035S,T0.036S,T0.040S,T0.042S,T0.044S,T0.045S,T0.046S,T0.048S,T0.050S,T0.055S,T0.060S,T0.065S,T0.067S,T0.070S,T0.075S,T0.080S,T0.085S,T0.090S,T0.095S,T0.100S,T0.110S,T0.120S,T0.130S,T0.133S,T0.140S,T0.150S,T0.160S,T0.170S,T0.180S,T0.190S,T0.200S,T0.220S,T0.240S,T0.250S,T0.260S,T0.280S,T0.290S,T0.300S,T0.320S,T0.340S,T0.350S,T0.360S,T0.380S,T0.400S,T0.420S,T0.440S,T0.450S,T0.460S,T0.480S,T0.500S,T0.550S,T0.600S,T0.650S,T0.667S,T0.700S,T0.750S,T0.800S,T0.850S,T0.900S,T0.950S,T1.000S,T1.100S,T1.200S,T1.300S,T1.400S,T1.500S,T1.600S,T1.700S,T1.800S,T1.900S,T2.000S,T2.200S,T2.400S,T2.500S,T2.600S,T2.800S,T3.000S,T3.200S,T3.400S,T3.500S,T3.600S,T3.800S,T4.000S,T4.200S,T4.400S,T4.600S,T4.800S,T5.000S,T5.500S,T6.000S,T6.500S,T7.000S,T7.500S,T8.000S,T8.500S,T9.000S,T9.500S,T10.000S,T11.000S,T12.000S,T13.000S,T14.000S,T15.000S,T20.000S
-    # """
+    origin_time = datetime.fromisoformat(metadata["Origin Meta"]).isoformat()
+    start_time = datetime.strptime(metadata['new_record_start_UTC'],
+                                   "%Y%m%d%H%M%S").isoformat()
+    pga1 = metadata['PGA_EW']
+    pga2 = metadata['PGA_NS']
+
     new_metadata = {
         'event_id': metadata['EQ_Code'],
         # 'azimuth': metadata.get(54),
@@ -224,7 +186,7 @@ def process_waveforms(
         'joyner_boore_distance': pd.Series([metadata["RJB_0"], metadata["RJB_1"]]).mean(),  # noqa
         'rupture_distance': pd.Series([metadata["Rrup 0"], metadata["Rrup 1"]]).mean(),
         # 'fault_normal_distance': None,
-        'origin_time': metadata["Origin Meta"],
+        'origin_time': origin_time,
         'event_lat': metadata["evLat. Meta"],
         'event_lon': metadata["evLong. Meta"],
         'event_depth': metadata["Depth. (km) Meta"],
@@ -249,16 +211,21 @@ def process_waveforms(
         "z2pt5": metadata["z2pt5"],
         "region": 0,
 
-        "sensor_type": 'A',
+        # "sensor_type": 'A',
         "filter_type": "A",
-        "npass": 4,  # 4th-order acausal butterworth filter,
-        "nroll": 0,  # metadata["nroll"],
+        "npass": 4,  # 4th-order acausal butterworth filter,  # FIXME see doc dino
+        "nroll": 0,  # metadata["nroll"],  # FIXME see doc dino
         "lower_cutoff_frequency_h1": metadata["fc0"],  # FIXME CHECK THIS  hp_h1
         "lower_cutoff_frequency_h2": metadata["fc0"],
         "upper_cutoff_frequency_h1": metadata["fc1"],
         "upper_cutoff_frequency_h2": metadata["fc1"],
         "lowest_usable_frequency_h1": metadata["fc0"],
-        "lowest_usable_frequency_h2": metadata["fc1"]  # if not sure, leave None
+        "lowest_usable_frequency_h2": metadata["fc1"],  # if not sure, leave None
+        'start_time': start_time,
+        'p_wave_arrival_time': metadata['tP_JMA'],
+        's_wave_arrival_time': metadata['tS_JMA'],
+        'PGA': math.sqrt(pga1*pga2) if pd.notna([pga1, pga2]).all() else None
+
     }
 
     # correct missing values:
@@ -270,7 +237,7 @@ def process_waveforms(
 
 
 # csv arguments for source metadata (e/g. 'header'= None)
-source_metadata_csv_args = {'header=': [3]}  # {'header': None} for CSVs with no header
+source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
 
 # relative error threshold. After 100 waveforms, when waveforms with error / warnings
 # get higher than this number (relative to the total number of processed waveforms)

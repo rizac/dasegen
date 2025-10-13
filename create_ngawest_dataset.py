@@ -79,12 +79,9 @@ def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
         ('' if pd.isna(metadata["fpath_h2"]) else metadata["fpath_h2"]).strip(),
         ('' if pd.isna(metadata["fpath_v"]) else metadata["fpath_v"]).strip()
     ]
-    file_paths =[[], [], []]
+    file_paths = [[], [], []]
 
     rsn = str(metadata['Record Sequence Number'])
-
-    if '4152' == str(rsn):
-        asd = 9
 
     for file_abs_path in waveform_file_paths:
         bname = basename(file_abs_path)
@@ -247,7 +244,7 @@ def process_waveforms(
         "z2pt5": metadata["Northern CA/Southern CA - H11 Z2.5 (m)"],
         "region": 0,
 
-        "sensor_type": 'A',
+        # "sensor_type": 'A',
         "filter_type": metadata["Type of Filter"],
         "npass": metadata["npass"],
         "nroll": metadata["nroll"],
@@ -256,7 +253,8 @@ def process_waveforms(
         "upper_cutoff_frequency_h1": metadata["LP-H1 (Hz)"],
         "upper_cutoff_frequency_h2": metadata["LP-H2 (Hz)"],
         "lowest_usable_frequency_h1": metadata["Lowest Usable Freq - H1 (Hz)"],
-        "lowest_usable_frequency_h2": metadata["Lowest Usable Freq - H2 (H2)"]
+        "lowest_usable_frequency_h2": metadata["Lowest Usable Freq - H2 (H2)"],
+        'PGA': metadata["PGA (g)"] * 9.80665  # convert m/sec square,
     }
 
     # correct missing values:

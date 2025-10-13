@@ -178,11 +178,12 @@ region:
 
 # Time histories-related CSV fields:
 
-sensor_type:
-  dtype: ['A', 'V', 'D']
-  help: >-
-    the recording type. Acceleration, Velocity or Displacement. Time series 
-    units must be m /s**2, m/ s or m accordingly
+#sensor_type:
+#  dtype: ['A', 'V', 'D']
+#  help: >-
+#    the recording type. Acceleration, Velocity or Displacement. Time series
+#    units must be m /s**2, m/ s or m accordingly
+
 fpath:
   dtype: str
   help: >-
@@ -237,3 +238,17 @@ available_components:
     The available time histories for this recording: H: only one (horizontal 
     component), HH: the two horizontal components, HV: one horizontal and one vertical,
     V: only vertical, HHV: all three components (2 horizontal, and the vertical).
+start_time:
+  dtype: datetime
+  help: start time of the time histories (h1, h2, v). Assumes all components start time is the same
+p_wave_arrival_time:
+  dtype: float
+  help: Theoretical P-wave arrival time
+s_wave_arrival_time:
+  dtype: float
+  help: Theoretical S-wave arrival time
+PGA:
+  dtype: float
+  help: >-
+    PGA. If available it is the PGA computed at RotD50. If the two horizontal 
+    components are available, it is their geometric mean
