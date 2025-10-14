@@ -184,14 +184,14 @@ region:
 #    the recording type. Acceleration, Velocity or Displacement. Time series
 #    units must be m /s**2, m/ s or m accordingly
 
-fpath:
-  dtype: str
-  help: >-
-    the waveform(s) path, relative to the metadata.csv directory. 
-    The file is an hdf5 file which stores a maximum of 3 h5py.Datasets object named
-    "h1", "h2" and "v" (first and second horizontal component, and vertical). At least
-    one component must be present not all 3 are mandatory, so code must check if they 
-    exist
+#fpath:
+#  dtype: str
+#  help: >-
+#    the waveform(s) path, relative to the metadata.csv directory.
+#    The file is an hdf5 file which stores a maximum of 3 h5py.Datasets object named
+#    "h1", "h2" and "v" (first and second horizontal component, and vertical). At least
+#    one component must be present not all 3 are mandatory, so code must check if they
+#    exist
 #fpath_h1:
 #  dtype: str
 #  help: the waveform path, relative to the metadata.csv directory, of the 1st horizontal component
@@ -212,7 +212,7 @@ npass:
   default: 0
 nroll:
   dtype: float
-  help: The `nroll` parameter of the Butterworth filter. None when not applicable (Ormsby filter)
+  help: The `nroll` parameter of the Butterworth filter. 0 when not applicable
 lower_cutoff_frequency_h1:
   dtype: float
   help: Corner frequency of the high-pass filter of component H1, in Hz

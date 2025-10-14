@@ -31,7 +31,7 @@ A new metadata file metadata.csv will be also created in the same directory
 """
 from __future__ import annotations
 
-from typing import Optional, Any, Tuple
+from typing import Optional, Any, Union
 import logging
 import urllib.request
 import os
@@ -334,6 +334,15 @@ def get_dest_dir_path():
     return dirname(abspath(__file__))
 
 
+def get_file_path(metadata: dict):
+    """Return the file (relative) path from the given metadata
+    (record metadata already cleaned)"""
+    return join(
+        str(metadata['event_id']),
+        str(metadata['station_id']) + ".h5"
+    )
+
+
 def main():
 
     source_metadata_path = None
@@ -478,13 +487,9 @@ def main():
 
                     # save waveforms
                     step_name = "save_waveforms"  # noqa
-                    clean_record['file_path'] = join(
-                        str(clean_record['event_id']),
-                        splitext(basename(f_name))[0] + ".h5"
-                    )
-                    save_waveforms(join(dest_waveforms_path, clean_record['file_path']),
-                        h1, h2, v
-                    )
+                    file_path = join(dest_waveforms_path, get_file_path(clean_record))
+                    save_waveforms(file_path, h1, h2, v)
+
                     avail_th = None
                     if h1 is None and h2 is None and v is not None:
                         avail_th = 'V'

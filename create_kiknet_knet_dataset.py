@@ -31,7 +31,7 @@ A new metadata file metadata.csv will be also created in the same directory
 """
 from __future__ import annotations
 
-from typing import Optional, Any, Tuple
+from typing import Optional, Any, Union
 import logging
 import urllib.request
 import os
@@ -61,7 +61,7 @@ from tqdm import tqdm
 
 def accept_file(file_path) -> bool:
     """Tell whether the given source file can be accepted as time history file"""
-    return 'HYG012' in file_path and splitext(file_path)[1] in {'.UD2', '.NS2', '.EW2', '.UD', '.NS', '.EW'}  # with *1 => borehole  # FIXME
+    return splitext(file_path)[1] in {'.UD2', '.NS2', '.EW2', '.UD', '.NS', '.EW'}  # with *1 => borehole  # FIXME
 
 
 def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
@@ -278,7 +278,7 @@ def save_waveforms(
         os.chmod(file_path, os.stat(file_path).st_mode | stat.S_IRGRP | stat.S_IROTH)
 
 
-def _cast_dtype(val: Any, dtype: str):
+def _cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
     if dtype == 'int':
         assert isinstance(val, int) or (isinstance(val, float) and int(val) == val)
         return int(val)
@@ -295,14 +295,40 @@ def _cast_dtype(val: Any, dtype: str):
             assert isinstance(val, str)
         elif val == 'float':
             assert isinstance(val, float)
-        elif isinstance(dtype, (list, tuple)):
-            assert val in dtype
+        elif isinstance(dtype, pd.CategoricalDtype):
+            assert val in dtype.categories
     return val
+
+
+# def _cast_dtypes(values: Any, dtype: Union[str, pd.CategoricalDtype]):
+#     if dtype == 'int':
+#         return values.astype(int)
+#     elif dtype == 'bool':
+#         assert pd.unique(values) in {True, False, 0, 1}
+#         return values.astype(bool)
+#     elif dtype == 'datetime':
+#         return pd.to_datetime(values)
+#     elif values == 'str':
+#         assert values.astype(str)
+#     elif dtype == 'float':
+#         assert values.astype(float)
+#     elif isinstance(dtype, pd.CategoricalDtype):
+#         return values.astype(dtype)
+#     raise AssertionError(f'Unrecognized dtype {dtype}')
 
 
 def get_dest_dir_path():
     """destination root path, defaults to this script dir"""
     return dirname(abspath(__file__))
+
+
+def get_file_path(metadata: dict):
+    """Return the file (relative) path from the given metadata
+    (record metadata already cleaned)"""
+    return join(
+        str(metadata['event_id']),
+        str(metadata['station_id']) + ".h5"
+    )
 
 
 def main():
@@ -372,6 +398,11 @@ def main():
             # save to file
             with open(join(dest_root_path, 'metadata_fields.yml'), "wb") as f:
                 f.write(metadata_fields_content)
+            # convert dtypes:
+            for m in metadata_fields:
+                if isinstance(m['dtype'], (list, tuple)):
+                    assert 'default' not in m or m['default'] in m['dtype']
+                    m['dtype'] = pd.CategoricalDtype(m['dtype'])
     except Exception as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
@@ -449,13 +480,9 @@ def main():
 
                     # save waveforms
                     step_name = "save_waveforms"  # noqa
-                    clean_record['file_path'] = join(
-                        str(clean_record['event_id']),
-                        splitext(basename(f_name))[0] + ".h5"
-                    )
-                    save_waveforms(join(dest_waveforms_path, clean_record['file_path']),
-                        h1, h2, v
-                    )
+                    file_path = join(dest_waveforms_path, get_file_path(clean_record))
+                    save_waveforms(file_path, h1, h2, v)
+
                     avail_th = None
                     if h1 is None and h2 is None and v is not None:
                         avail_th = 'V'
