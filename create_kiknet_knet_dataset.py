@@ -172,9 +172,9 @@ def process_waveforms(
     :param h2: second horizontal component, same format as h1
     :param v: vertical component, same format as h1
     """
-    origin_time = datetime.fromisoformat(metadata["Origin Meta"]).isoformat()
-    start_time = datetime.strptime(metadata['new_record_start_UTC'],
-                                   "%Y%m%d%H%M%S").isoformat()
+    origin_time = datetime.fromisoformat(metadata["Origin_Meta"])
+    start_time = datetime.strptime(str(metadata['new_record_start_UTC']),
+                                   "%Y%m%d%H%M%S")
     pga1 = metadata['PGA_EW']
     pga2 = metadata['PGA_NS']
 
@@ -184,13 +184,13 @@ def process_waveforms(
         'epicentral_distance': metadata["Repi"],
         'hypocentral_distance': metadata["Rhypo"],
         'joyner_boore_distance': pd.Series([metadata["RJB_0"], metadata["RJB_1"]]).mean(),  # noqa
-        'rupture_distance': pd.Series([metadata["Rrup 0"], metadata["Rrup 1"]]).mean(),
+        'rupture_distance': pd.Series([metadata["Rrup_0"], metadata["Rrup_1"]]).mean(),
         # 'fault_normal_distance': None,
         'origin_time': origin_time,
-        'event_lat': metadata["evLat. Meta"],
-        'event_lon': metadata["evLong. Meta"],
-        'event_depth': metadata["Depth. (km) Meta"],
-        'magnitude': metadata["Earthquake Magnitude"],
+        'event_latitude': metadata["evLat._Meta"],
+        'event_longitude': metadata["evLong._Meta"],
+        'event_depth': metadata["Depth. (km)_Meta"],
+        'magnitude': metadata["Mag._Meta"],
         'magnitude_type': metadata["JMA_Magtype"],
         # 'depth_to_top_of_fault_rupture': None
         # 'fault_rupture_width': None,
@@ -205,9 +205,9 @@ def process_waveforms(
         'station_id': metadata["StationCode"],
         "vs30": metadata["vs30"],
         "vs30measured": metadata["vs30measured"] in {1, "1", 1.0},
-        "station_lat": metadata['StationLat.'],
-        "station_lon": metadata['StationLong.'],
-        "z1": metadata["z1pt0"],
+        "station_latitude": metadata['StationLat.'],
+        "station_longitude": metadata['StationLong.'],
+        "z1": metadata["z1"],
         "z2pt5": metadata["z2pt5"],
         "region": 0,
 
@@ -229,8 +229,16 @@ def process_waveforms(
     }
 
     # correct missing values:
-    if new_metadata['mag_type'] == 'U':
-        new_metadata['mag_type'] = None
+    new_metadata['magnitude_type'] = {
+        'J': 'MJ',  # JMA magnitude
+        'D': 'MD',  # JMA displacement magnitude
+        'd': 'Md',  # JMA displacement magnitude, but for two stations
+        'V': 'MV',  # JMA velocity magnitude
+        'v': 'Mv',  # JMA velocity magnitude, but for two or three stations
+        'W': 'Mw',  # Moment magnitude
+        'B': 'mb',  # Body wave magnitude from USGS
+        'S': 'Ms',  # Surface wave magnitude from USGS
+    }.get(new_metadata['magnitude_type'], None)
 
     # simply return the arguments (no processing by default):
     return new_metadata, h1, h2, v
@@ -400,9 +408,10 @@ def main():
                 f.write(metadata_fields_content)
             # convert dtypes:
             for m in metadata_fields:
-                if isinstance(m['dtype'], (list, tuple)):
-                    assert 'default' not in m or m['default'] in m['dtype']
-                    m['dtype'] = pd.CategoricalDtype(m['dtype'])
+                field = metadata_fields[m]
+                if isinstance(field['dtype'], (list, tuple)):
+                    assert 'default' not in field or field['default'] in m['dtype']
+                    field['dtype'] = pd.CategoricalDtype(field['dtype'])
     except Exception as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)

@@ -57,8 +57,8 @@ magnitude:
   dtype: float
   help: event magnitude
 magnitude_type:
-  dtype: ["ML", "mb", "Ms", 'Mw']
-  help: magnitude type
+  dtype: ["ML", "mb", "Ms", 'Mw', "MJ", "MD", "Md", "MV", "Mv"]
+  help: magnitude type. For MJ, MD, Md, MV, Mv, see https://www.data.jma.go.jp/eqev/data/bulletin/catalog/notes_e.html
 event_depth:
   dtype: float
   help: event depth (hypocentral depth, in km)
