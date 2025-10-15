@@ -12,6 +12,10 @@
 #azimuth:
 #  dtype: float
 #  help: azimuth (deg)
+id:
+  dtype: int
+  help: >- 
+    the unique record id, as sequential integer usually inferred from the source metadata
 epicentral_distance:
   dtype: float
   help: epicentral distance (aka repi, in km)

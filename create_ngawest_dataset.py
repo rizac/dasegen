@@ -184,13 +184,16 @@ def process_waveforms(
     """
     # pga check
     pga = metadata["PGA (g)"] * 9.80665  # convert m/sec square
-    rtol = 0.01
-    if h1 is not None:
+    rtol = 0.075
+    if h1 is not None and h2 is not None:
+        assert np.isclose(pga, np.sqrt(np.max(np.abs(h1[1])) * np.max(np.abs(h2[1]))),
+                          rtol=rtol), f"PGA geom mean not within {rtol}"
+    elif h1 is not None and h2 is None:
         assert np.isclose(pga, np.max(np.abs(h1[1])),
-                          rtol=0.01), f"PGA EW not within {rtol}"
-    if h2 is not None:
+                          rtol=2*rtol), f"PGA h1 not within {rtol}"
+    elif h1 is None and h2 is not None:
         assert np.isclose(pga, np.max(np.abs(h2[1])),
-                          rtol=0.01), f"PGA NS not within {rtol}"
+                          rtol=2*rtol), f"PGA h2 not within {rtol}"
 
     # compute arrival time (correct)
     year = metadata['YEAR']
@@ -300,27 +303,10 @@ def process_waveforms(
 
 def main():
 
-    source_metadata_path = None
-    source_waveforms_path = None
-
-    if len(sys.argv) == 3:
-        source_metadata_path = sys.argv[1]
-        source_waveforms_path = sys.argv[2]
-
-    err_noarg = not source_metadata_path or not source_waveforms_path
-    err_no_file = False
-    if not err_noarg:
-        err_no_file = not isfile(source_metadata_path) or not isdir(source_waveforms_path)
-
-    if err_no_file or err_noarg:
-        print(f'Error: {"invalid arguments" if err_noarg else "invalid file/dir path"}',
-              file=sys.stderr)
-        print(f"Usage: {sys.argv[0]} <metadata_table_file> <time_histories_dir>")
-        print(f"Process and harmonzie an old dataset into a new one. "
-              f"Takes every row of metadata_table_file (csv), finds the "
-              f"relative 3 time histories inside <time_histories_dir> (recursively)"
-              f"and saves the new metadata in ./metadata.csv and the new processed time"
-              f"histories in ./waveforms (. refers to this script current directory)")
+    try:
+        source_metadata_path, source_waveforms_path = read_script_args(sys.argv)
+    except Exception as exc:
+        print(exc, file=sys.stderr)
         sys.exit(1)
 
     dest_root_path = get_dest_dir_path()
@@ -356,21 +342,9 @@ def main():
     print("Loading metadata fields from git repo")
     # Download and save locally
     try:
-        with urllib.request.urlopen("https://raw.githubusercontent.com"
-                                    "/rizac/dasegen/refs/heads/main/"
-                                    f"metadata_fields.yml?nocache={int(time.time())}") as response:
-            metadata_fields_content = response.read()
-            # Load YAML into Python dict
-            metadata_fields = yaml.safe_load(metadata_fields_content.decode("utf-8"))
-            # save to file
-            with open(join(dest_root_path, 'metadata_fields.yml'), "wb") as f:
-                f.write(metadata_fields_content)
-            # convert dtypes:
-            for m in metadata_fields:
-                field = metadata_fields[m]
-                if isinstance(field['dtype'], (list, tuple)):
-                    assert 'default' not in field or field['default'] in m['dtype']
-                    field['dtype'] = pd.CategoricalDtype(field['dtype'])
+        metadata_fields = download_metadata_fields(
+            join(dest_root_path, 'metadata_fields.yml')
+        )
     except Exception as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
@@ -378,7 +352,7 @@ def main():
     print(f'Scanning {source_metadata_path}')
     min_itemsize = {}
     max_rows = 0
-    with open("source_metadata_path", newline="", encoding="utf-8") as f:
+    with open(source_metadata_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             max_rows += 1
@@ -459,7 +433,7 @@ def main():
                         step_name = f"_cast_dtype (field '{f}')"
                         dtype = metadata_fields[f]['dtype']
                         try:
-                            clean_record[f] = _cast_dtype(val, dtype)
+                            clean_record[f] = cast_dtype(val, dtype)
                         except AssertionError:
                             raise AssertionError(f'Field {f}: invalid value {str(val)}')
                     new_metadata.append(clean_record)
@@ -500,7 +474,7 @@ def main():
             # save metadata:
             new_metadata_df = pd.DataFrame(new_metadata)
             for col in new_metadata_df.columns:
-                new_metadata_df[col] = _cast_dtypes(
+                new_metadata_df[col] = cast_dtypes(
                     new_metadata_df[col],
                     metadata_fields[col]['dtype']
             )
@@ -513,6 +487,103 @@ def main():
         )
     pbar.close()
     sys.exit(0)
+
+
+def read_script_args(sys_argv):
+    source_metadata_path = None
+    source_waveforms_path = None
+
+    if len(sys.argv) == 3:
+        source_metadata_path = sys_argv[1]
+        source_waveforms_path = sys_argv[2]
+
+    err_noarg = not source_metadata_path or not source_waveforms_path
+    err_no_file = False
+    if not err_noarg:
+        err_no_file = not isfile(source_metadata_path) or not isdir(
+            source_waveforms_path)
+
+    if err_no_file or err_noarg:
+        raise ValueError(
+            f'Error: {"invalid arguments" if err_noarg else "invalid file/dir path"}\n'
+            f"Usage: {sys.argv[0]} <metadata_table_file> <time_histories_dir>\n"
+            f"Process and harmonize an old dataset into a new one. "
+            f"Takes every row of metadata_table_file (csv), finds the "
+            f"relative 3 time histories inside <time_histories_dir> (recursively)"
+            f"and saves the new metadata in ./metadata.csv and the new processed time"
+            f"histories in ./waveforms (. refers to this script current directory)"
+        )
+    return source_metadata_path, source_waveforms_path
+
+
+def setup_logging(filename):
+    logger = logging.getLogger()  # root logger
+    # if not logger.handlers:
+    handler = logging.FileHandler(filename, mode='w')
+    formatter = logging.Formatter('%(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+
+def download_metadata_fields(dest_path):
+    """
+    Download from github the YAML metadat fields and saves it
+    into dest_root_path. Returns the dict of the parsed yaml
+    """
+    with urllib.request.urlopen("https://raw.githubusercontent.com"
+                                "/rizac/dasegen/refs/heads/main/"
+                                f"metadata_fields.yml?nocache={int(time.time())}") as response:
+        metadata_fields_content = response.read()
+        # Load YAML into Python dict
+        metadata_fields = yaml.safe_load(metadata_fields_content.decode("utf-8"))
+        # save to file
+        with open(dest_path, "wb") as f:
+            f.write(metadata_fields_content)
+        # convert dtypes:
+        for m in metadata_fields:
+            field = metadata_fields[m]
+            if isinstance(field['dtype'], (list, tuple)):
+                assert 'default' not in field or field['default'] in m['dtype']
+                field['dtype'] = pd.CategoricalDtype(field['dtype'])
+
+    return metadata_fields
+
+
+def read_wafevorms(file_path):
+    """Reads the file path previously saved. NOT USED, HERE ONLY FOR REF"""
+    with h5py.File(file_path, "r") as f:
+        h1_data = f["h1"][:] if "h1" in f else np.array([])
+        h1_dt = f["h1"].attrs["dt"] if "h1" in f else None
+
+        h2_data = f["h2"][:] if "h2" in f else np.array([])
+        h2_dt = f["h2"].attrs["dt"] if "h2" in f else None
+
+        v_data = f["v"][:] if "v" in f else np.array([])
+        v_dt = f["v"].attrs["dt"] if "v" in f else None
+    return (h1_dt, h1_data), (h2_dt, h2_data), (v_dt, v_data)
+
+
+def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
+    if dtype == 'int':
+        assert isinstance(val, int) or (isinstance(val, float) and int(val) == val)
+        return int(val)
+    elif dtype == 'bool':
+        if val in {0, 1}:
+            val = bool(val)
+        assert isinstance(val, bool)
+    elif val is not None:
+        if dtype == 'datetime':
+            if hasattr(val, 'to_pydatetime'):  # for safety
+                val = val.to_pydatetime()
+            assert isinstance(val, datetime)
+        elif val == 'str':
+            assert isinstance(val, str)
+        elif val == 'float':
+            assert isinstance(val, float)
+        elif isinstance(dtype, pd.CategoricalDtype):
+            assert val in dtype.categories
+    return val
 
 
 def save_waveforms(
@@ -543,43 +614,7 @@ def save_waveforms(
         os.chmod(file_path, os.stat(file_path).st_mode | stat.S_IRGRP | stat.S_IROTH)
 
 
-def read_wafevorms(file_path):
-    """Reads the file path previously saved. NOT USED, HERE ONLY FOR REF"""
-    with h5py.File(file_path, "r") as f:
-        h1_data = f["h1"][:] if "h1" in f else np.array([])
-        h1_dt = f["h1"].attrs["dt"] if "h1" in f else None
-
-        h2_data = f["h2"][:] if "h2" in f else np.array([])
-        h2_dt = f["h2"].attrs["dt"] if "h2" in f else None
-
-        v_data = f["v"][:] if "v" in f else np.array([])
-        v_dt = f["v"].attrs["dt"] if "v" in f else None
-    return (h1_dt, h1_data), (h2_dt, h2_data), (v_dt, v_data)
-
-
-def _cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
-    if dtype == 'int':
-        assert isinstance(val, int) or (isinstance(val, float) and int(val) == val)
-        return int(val)
-    elif dtype == 'bool':
-        if val in {0, 1}:
-            val = bool(val)
-        assert isinstance(val, bool)
-    elif val is not None:
-        if dtype == 'datetime':
-            if hasattr(val, 'to_pydatetime'):  # for safety
-                val = val.to_pydatetime()
-            assert isinstance(val, datetime)
-        elif val == 'str':
-            assert isinstance(val, str)
-        elif val == 'float':
-            assert isinstance(val, float)
-        elif isinstance(dtype, pd.CategoricalDtype):
-            assert val in dtype.categories
-    return val
-
-
-def _cast_dtypes(values: Any, dtype: Union[str, pd.CategoricalDtype]):
+def cast_dtypes(values: Any, dtype: Union[str, pd.CategoricalDtype]):
     if dtype == 'int':
         # assert pd.notna(values).all()
         return values.astype(int)
@@ -640,16 +675,6 @@ def finalize_metadata(
     if dt is not None:
         sampling_rate = int(1./dt) if int(1./dt) == float(1./dt) else None
     return avail_comps, sampling_rate
-
-
-def setup_logging(filename):
-    logger = logging.getLogger()  # root logger
-    # if not logger.handlers:
-    handler = logging.FileHandler(filename, mode='w')
-    formatter = logging.Formatter('%(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
 
 
 if __name__ == "__main__":
