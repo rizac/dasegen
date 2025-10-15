@@ -208,11 +208,11 @@ filter_type:
     O: Ormsby, A: Acausal Butterworth, C Causal butterworth
 npass:
   dtype: int
-  help: Number of passes of filter
+  help: Number of passes of filter. ) when not applicable / not available
   default: 0
 nroll:
   dtype: float
-  help: The `nroll` parameter of the Butterworth filter. 0 when not applicable
+  help: The `nroll` parameter of the Butterworth filter. 0 when not applicable / not available
 lower_cutoff_frequency_h1:
   dtype: float
   help: Corner frequency of the high-pass filter of component H1, in Hz
@@ -231,13 +231,18 @@ lowest_usable_frequency_h1:
 lowest_usable_frequency_h2:
   dtype: float
   help: Lowest usable frequency of component H2, in Hz usually as ratio of hp_h1
-# file_path: will be populated by code
 available_components:
   dtype: ['H', 'HH', 'HV', 'V', 'HHV']
   help: >-
     The available time histories for this recording: H: only one (horizontal 
     component), HH: the two horizontal components, HV: one horizontal and one vertical,
     V: only vertical, HHV: all three components (2 horizontal, and the vertical).
+sampling_rate:
+  dtype: int
+  help: >- 
+    The sampling rate. If non-zero, it is the sampling rate of all available
+    components (h1, h2, v). If zero, it denotes some error (sampling rate not equal among 
+    components, or non-integer)
 start_time:
   dtype: datetime
   help: start time of the time histories (h1, h2, v). Assumes all components start time is the same
@@ -251,4 +256,6 @@ PGA:
   dtype: float
   help: >-
     PGA. If available it is the PGA computed at RotD50. If the two horizontal 
-    components are available, it is their geometric mean
+    components are available, it is their geometric mean. This datum is retrieved from
+    the source catalog, not computed directly from the data (consistency between the two
+    entities is performed, when possible)

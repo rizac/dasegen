@@ -35,6 +35,7 @@ from typing import Optional, Any, Union
 import logging
 import urllib.request
 import os
+import time
 from os.path import abspath, join, basename, isdir, isfile, dirname, splitext
 import stat
 import yaml
@@ -49,12 +50,30 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 import glob
+# from obspy import read
+from io import BytesIO
+import math
 from tqdm import tqdm
 
 
 ########################################################################
 # Editable file part: please read carefully and implement your routine #
 ########################################################################
+
+# id columns (YAML file names mapped to source catalog names):
+id_columns = {
+    'event_id': 'EQID',
+    'station_id': 'station_id'
+}
+
+# csv arguments for source metadata (e/g. 'header'= None)
+source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
+
+# relative error threshold. After 100 waveforms, when waveforms with error / warnings
+# get higher than this number (relative to the total number of processed waveforms)
+# the program will stop. 0.05 means 5% max of erroneous waveforms
+re_err_th = 0.333333
+
 
 def accept_file(file_path) -> bool:
     """Tell whether the given source file can be accepted as time history file"""
@@ -163,6 +182,16 @@ def process_waveforms(
     :param h2: second horizontal component, same format as h1
     :param v: vertical component, same format as h1
     """
+    # pga check
+    pga = metadata["PGA (g)"] * 9.80665  # convert m/sec square
+    rtol = 0.01
+    if h1 is not None:
+        assert np.isclose(pga, np.max(np.abs(h1[1])),
+                          rtol=0.01), f"PGA EW not within {rtol}"
+    if h2 is not None:
+        assert np.isclose(pga, np.max(np.abs(h2[1])),
+                          rtol=0.01), f"PGA NS not within {rtol}"
+
     # compute arrival time (correct)
     year = metadata['YEAR']
     month_day = str(metadata['MODY'])
@@ -175,10 +204,9 @@ def process_waveforms(
     month, day = int(month_day[:2]), int(month_day[2:])
     hour, min = int(hour_min[:2]), int(hour_min[2:])
     evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
-    evt_id = metadata.get('EQID')
-    sta_id = metadata["Station ID  No."]
-    if sta_id == '99999':
-        sta_id = None
+    evt_id = str(metadata.get('EQID'))
+    sta_id = str(metadata["station_id"])
+
     # """
     # Record Sequence Number,EQID,Earthquake Name,YEAR,MODY,HRMN,Station Name,
     # Station Sequence Number,Station ID  No.,Earthquake Magnitude,Magnitude Type,
@@ -254,7 +282,7 @@ def process_waveforms(
         "upper_cutoff_frequency_h2": metadata["LP-H2 (Hz)"],
         "lowest_usable_frequency_h1": metadata["Lowest Usable Freq - H1 (Hz)"],
         "lowest_usable_frequency_h2": metadata["Lowest Usable Freq - H2 (H2)"],
-        'PGA': metadata["PGA (g)"] * 9.80665  # convert m/sec square,
+        'PGA': pga,
     }
 
     # correct missing values:
@@ -265,82 +293,9 @@ def process_waveforms(
     return new_metadata, h1, h2, v
 
 
-# csv arguments for source metadata (e/g. 'header'= None)
-source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
-
-# relative error threshold. After 100 waveforms, when waveforms with error / warnings
-# get higher than this number (relative to the total number of processed waveforms)
-# the program will stop. 0.05 means 5% max of erroneous waveforms
-re_err_th = 0.05
-
-
 ###########################################
 # The code below should not be customized #
 ###########################################
-
-
-def save_waveforms(
-        file_path,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]],
-        v: Optional[tuple[float, ndarray]]
-):
-    if not isdir(dirname(file_path)):
-        os.makedirs(dirname(file_path))
-
-    with h5py.File(file_path, "w") as f:
-        # Save existing components
-        if h1 is not None:
-            f.create_dataset("h1", data=h1[1])
-            f["h1"].attrs["dt"] = h1[0]
-
-        if h2 is not None:
-            f.create_dataset("h2", data=h2[1])
-            f["h2"].attrs["dt"] = h2[0]
-
-        if v is not None:
-            f.create_dataset("v", data=v[1])
-            f["v"].attrs["dt"] = v[0]
-
-    # Add read permission for group (stat.S_IRGRP) and others (stat.S_IROTH).
-    if isfile(file_path):
-        os.chmod(file_path, os.stat(file_path).st_mode | stat.S_IRGRP | stat.S_IROTH)
-
-
-def _cast_dtype(val: Any, dtype: str):
-    if dtype == 'int':
-        assert isinstance(val, int) or (isinstance(val, float) and int(val) == val)
-        return int(val)
-    elif dtype == 'bool':
-        if val in {0, 1}:
-            val = bool(val)
-        assert isinstance(val, bool)
-    elif val is not None:
-        if dtype == 'datetime':
-            if hasattr(val, 'to_pydatetime'):  # for safety
-                val = val.to_pydatetime()
-            assert isinstance(val, datetime)
-        elif val == 'str':
-            assert isinstance(val, str)
-        elif val == 'float':
-            assert isinstance(val, float)
-        elif isinstance(dtype, (list, tuple)):
-            assert val in dtype
-    return val
-
-
-def get_dest_dir_path():
-    """destination root path, defaults to this script dir"""
-    return dirname(abspath(__file__))
-
-
-def get_file_path(metadata: dict):
-    """Return the file (relative) path from the given metadata
-    (record metadata already cleaned)"""
-    return join(
-        str(metadata['event_id']),
-        str(metadata['station_id']) + ".h5"
-    )
 
 
 def main():
@@ -403,22 +358,37 @@ def main():
     try:
         with urllib.request.urlopen("https://raw.githubusercontent.com"
                                     "/rizac/dasegen/refs/heads/main/"
-                                    "metadata_fields.yml") as response:
+                                    f"metadata_fields.yml?nocache={int(time.time())}") as response:
             metadata_fields_content = response.read()
             # Load YAML into Python dict
             metadata_fields = yaml.safe_load(metadata_fields_content.decode("utf-8"))
             # save to file
             with open(join(dest_root_path, 'metadata_fields.yml'), "wb") as f:
                 f.write(metadata_fields_content)
+            # convert dtypes:
+            for m in metadata_fields:
+                field = metadata_fields[m]
+                if isinstance(field['dtype'], (list, tuple)):
+                    assert 'default' not in field or field['default'] in m['dtype']
+                    field['dtype'] = pd.CategoricalDtype(field['dtype'])
     except Exception as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
 
-    with open(source_metadata_path, 'rb') as f:
-        max_rows = sum(1 for _ in f) - 1  # Subtract 1 for header
+    print(f'Scanning {source_metadata_path}')
+    min_itemsize = {}
+    max_rows = 0
+    with open("source_metadata_path", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            max_rows += 1
+            for dest_col, src_col in id_columns.items():
+                val = row[src_col]
+                if val is not None:
+                    old_val = min_itemsize.get(dest_col, 0)
+                    min_itemsize[dest_col] = max(old_val, len(val))
 
     print(f'Scanning {source_waveforms_path}')
-
     files = set()
     for dirpath, dirnames, filenames in os.walk(source_waveforms_path):
         for f in filenames:
@@ -433,12 +403,21 @@ def main():
                    "(estimated remaining time {remaining}s)"
     )
 
+    # output metadata to_hdf kwargs (fixed):
+    hdf_kwargs = {
+        'key': "metadata",  # table name
+        'mode': "a",  # (1st time creates a new file because we deleted it, see above)
+        'format': "table",  # required for appendable table
+        'append': True,  # first batch still uses append=True
+        'min_itemsize': min_itemsize,  # required for strings (used only the 1st time to_hdf is called)  # noqa
+        # 'data_columns': [],  # list of columns you need to query these later
+    }
+
     print(f'Processing records in {source_metadata_path}')
     rec_num = 0
     csv_args = dict(source_metadata_csv_args)
     csv_args.setdefault('chunksize', 100000)
     errs = 0
-    write_header = True
     for metadata_chunk in pd.read_csv(source_metadata_path, **csv_args):
         new_metadata = []
         for record in metadata_chunk.to_dict(orient="records"):
@@ -490,18 +469,10 @@ def main():
                     file_path = join(dest_waveforms_path, get_file_path(clean_record))
                     save_waveforms(file_path, h1, h2, v)
 
-                    avail_th = None
-                    if h1 is None and h2 is None and v is not None:
-                        avail_th = 'V'
-                    elif h1 is not None and h2 is not None and v is not None:
-                        avail_th = 'HHV'
-                    elif h1 is not None and h2 is not None and v is None:
-                        avail_th = 'HH'
-                    elif (h1 is None) != (h2 is None) and v is not None:
-                        avail_th = 'HV'
-                    elif (h1 is not None) != (h2 is not None) and v is None:
-                        avail_th = 'H'
-                    clean_record['available_components'] = avail_th
+                    avail_comps, sampling_rate = \
+                        finalize_metadata(clean_record, h1, h2, v)
+                    clean_record['available_components'] = avail_comps
+                    clean_record['sampling_rate'] = sampling_rate
 
             except Exception as exc:
                 logging.error(
@@ -527,15 +498,13 @@ def main():
 
         if new_metadata:
             # save metadata:
-            pd.DataFrame(new_metadata).to_csv(
-                dest_metadata_path,
-                date_format="%Y-%m-%dT%H:%M:%S",
-                index=False,
-                mode='a',
-                header=write_header,
-                na_rep=''
+            new_metadata_df = pd.DataFrame(new_metadata)
+            for col in new_metadata_df.columns:
+                new_metadata_df[col] = _cast_dtypes(
+                    new_metadata_df[col],
+                    metadata_fields[col]['dtype']
             )
-            write_header = False
+            new_metadata_df.to_hdf(dest_metadata_path, **hdf_kwargs)
 
     if isfile(dest_metadata_path):
         os.chmod(
@@ -544,6 +513,133 @@ def main():
         )
     pbar.close()
     sys.exit(0)
+
+
+def save_waveforms(
+        file_path,
+        h1: Optional[tuple[float, ndarray]],
+        h2: Optional[tuple[float, ndarray]],
+        v: Optional[tuple[float, ndarray]]
+):
+    if not isdir(dirname(file_path)):
+        os.makedirs(dirname(file_path))
+
+    with h5py.File(file_path, "w") as f:
+        # Save existing components
+        if h1 is not None:
+            f.create_dataset("h1", data=h1[1])
+            f["h1"].attrs["dt"] = h1[0]
+
+        if h2 is not None:
+            f.create_dataset("h2", data=h2[1])
+            f["h2"].attrs["dt"] = h2[0]
+
+        if v is not None:
+            f.create_dataset("v", data=v[1])
+            f["v"].attrs["dt"] = v[0]
+
+    # Add read permission for group (stat.S_IRGRP) and others (stat.S_IROTH).
+    if isfile(file_path):
+        os.chmod(file_path, os.stat(file_path).st_mode | stat.S_IRGRP | stat.S_IROTH)
+
+
+def read_wafevorms(file_path):
+    """Reads the file path previously saved. NOT USED, HERE ONLY FOR REF"""
+    with h5py.File(file_path, "r") as f:
+        h1_data = f["h1"][:] if "h1" in f else np.array([])
+        h1_dt = f["h1"].attrs["dt"] if "h1" in f else None
+
+        h2_data = f["h2"][:] if "h2" in f else np.array([])
+        h2_dt = f["h2"].attrs["dt"] if "h2" in f else None
+
+        v_data = f["v"][:] if "v" in f else np.array([])
+        v_dt = f["v"].attrs["dt"] if "v" in f else None
+    return (h1_dt, h1_data), (h2_dt, h2_data), (v_dt, v_data)
+
+
+def _cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
+    if dtype == 'int':
+        assert isinstance(val, int) or (isinstance(val, float) and int(val) == val)
+        return int(val)
+    elif dtype == 'bool':
+        if val in {0, 1}:
+            val = bool(val)
+        assert isinstance(val, bool)
+    elif val is not None:
+        if dtype == 'datetime':
+            if hasattr(val, 'to_pydatetime'):  # for safety
+                val = val.to_pydatetime()
+            assert isinstance(val, datetime)
+        elif val == 'str':
+            assert isinstance(val, str)
+        elif val == 'float':
+            assert isinstance(val, float)
+        elif isinstance(dtype, pd.CategoricalDtype):
+            assert val in dtype.categories
+    return val
+
+
+def _cast_dtypes(values: Any, dtype: Union[str, pd.CategoricalDtype]):
+    if dtype == 'int':
+        # assert pd.notna(values).all()
+        return values.astype(int)
+    elif dtype == 'bool':
+        assert pd.unique(values) in {True, False, 0, 1}
+        return values.astype(bool)
+    elif dtype == 'datetime':
+        return pd.to_datetime(values, errors='coerce')
+    elif values == 'str':
+        assert values.astype(str)
+    elif dtype == 'float':
+        assert values.astype(float)
+    elif isinstance(dtype, pd.CategoricalDtype):
+        return values.astype(dtype)
+    raise AssertionError(f'Unrecognized dtype {dtype}')
+
+
+def get_dest_dir_path():
+    """destination root path, defaults to this script dir"""
+    return dirname(abspath(__file__))
+
+
+def get_file_path(metadata: dict):
+    """Return the file (relative) path from the given metadata
+    (record metadata already cleaned)"""
+    return join(
+        str(metadata['event_id']),
+        str(metadata['station_id']) + ".h5"
+    )
+
+
+def finalize_metadata(
+        metadata: dict,
+        h1: Optional[tuple[float, ndarray]],
+        h2: Optional[tuple[float, ndarray]],
+        v: Optional[tuple[float, ndarray]]
+) -> tuple[Optional[str], Optional[int]]:
+    avail_components = (h1 is not None, h2 is not None, v is not None)
+    dt = None
+    avail_comps = None
+    if avail_components == (False, False, True):
+        avail_comps = 'V'
+        dt = v[0]
+    elif avail_components == (True, False, False):
+        avail_comps = 'H'
+        dt = h1[0]
+    elif avail_components == (False, True, False):
+        avail_comps = 'H'
+        dt = h2[0]
+    elif avail_components == (True, True, False):
+        avail_comps = 'HH'
+        dt = h1[0] if h1[0] == h2[0] else None
+    elif avail_components == (True, True, True):
+        avail_comps = 'HHV'
+        dt = h1[0] if h1[0] == h2[0] == v[0] else None
+
+    sampling_rate = None
+    if dt is not None:
+        sampling_rate = int(1./dt) if int(1./dt) == float(1./dt) else None
+    return avail_comps, sampling_rate
 
 
 def setup_logging(filename):
