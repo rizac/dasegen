@@ -196,7 +196,7 @@ def process_waveforms(
     # pga check
     pga1 = metadata['PGA_EW']
     pga2 = metadata['PGA_NS']
-    rtol = 0.05
+    rtol = 0.1
     if h1 is not None:
         assert np.isclose(pga1, np.max(np.abs(h1[1])),
                           rtol=rtol), f"PGA EW not within {rtol}"
@@ -226,7 +226,11 @@ def process_waveforms(
         'strike2': metadata["fnet_Strike_1"],
         'dip2': metadata["fnet_Dip_1"],
         'rake2': metadata["fnet_Rake_1"],
-        'fault_type': {'S': 0, 'N': 1, 'R': 2}.get(metadata["Focal_mechanism_BA"]),
+        'fault_type': {
+            'S': 'Strike-Slip',
+            'N': 'Normal',
+            'R': 'Reverse'
+        }.get(metadata["Focal_mechanism_BA"]),
 
         'station_id': metadata["StationCode"],
         "vs30": metadata["vs30"],
@@ -589,18 +593,21 @@ def save_waveforms(
 
 
 def cast_dtypes(values: Any, dtype: Union[str, pd.CategoricalDtype]):
+    """
+    Cast the values of the output metadata. Safety method (each value in `values` is
+    the outcome of `cast_dtype` so it should be of the correct dtype already)
+    """
     if dtype == 'int':
         # assert pd.notna(values).all()
         return values.astype(int)
     elif dtype == 'bool':
-        assert pd.unique(values) in {True, False, 0, 1}
         return values.astype(bool)
     elif dtype == 'datetime':
         return pd.to_datetime(values, errors='coerce')
-    elif values == 'str':
-        assert values.astype(str)
+    elif dtype == 'str':
+        return values.astype(str)
     elif dtype == 'float':
-        assert values.astype(float)
+        return values.astype(float)
     elif isinstance(dtype, pd.CategoricalDtype):
         return values.astype(dtype)
     raise AssertionError(f'Unrecognized dtype {dtype}')

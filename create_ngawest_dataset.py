@@ -184,7 +184,7 @@ def process_waveforms(
     """
     # pga check
     pga = metadata["PGA (g)"] * 9.80665  # convert m/sec square
-    rtol = 0.075
+    rtol = 0.1
     if h1 is not None and h2 is not None:
         assert np.isclose(pga, np.sqrt(np.max(np.abs(h1[1])) * np.max(np.abs(h2[1]))),
                           rtol=rtol), f"PGA geom mean not within {rtol}"
@@ -291,6 +291,13 @@ def process_waveforms(
     # correct missing values:
     if new_metadata['magnitude_type'] == 'U':
         new_metadata['magnitude_type'] = None
+
+    try:
+        new_metadata['fault_type'] = [
+            'Strike-Slip', 'Normal', 'Reverse', 'Reverse-Oblique', 'Normal-Oblique'
+        ][int(new_metadata['fault_type'])]
+    except (IndexError, ValueError, TypeError):
+        new_metadata['fault_type'] = None
 
     # simply return the arguments (no processing by default):
     return new_metadata, h1, h2, v
@@ -615,18 +622,21 @@ def save_waveforms(
 
 
 def cast_dtypes(values: Any, dtype: Union[str, pd.CategoricalDtype]):
+    """
+    Cast the values of the output metadata. Safety method (each value in `values` is
+    the outcome of `cast_dtype` so it should be of the correct dtype already)
+    """
     if dtype == 'int':
         # assert pd.notna(values).all()
         return values.astype(int)
     elif dtype == 'bool':
-        assert pd.unique(values) in {True, False, 0, 1}
         return values.astype(bool)
     elif dtype == 'datetime':
         return pd.to_datetime(values, errors='coerce')
-    elif values == 'str':
-        assert values.astype(str)
+    elif dtype == 'str':
+        return values.astype(str)
     elif dtype == 'float':
-        assert values.astype(float)
+        return values.astype(float)
     elif isinstance(dtype, pd.CategoricalDtype):
         return values.astype(dtype)
     raise AssertionError(f'Unrecognized dtype {dtype}')

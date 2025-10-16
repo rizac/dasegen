@@ -106,9 +106,11 @@ strike2:
   dtype: float
   help: The dip for one of the possible fault planes, or N/A (see dip help for details)
 fault_type:
-  dtype: [0,1,2,3,4]
+  dtype: ['Strike-Slip', 'Normal', 'Reverse' , 'Reverse-Oblique', 'Normal-Oblique']
   help: >-
-    Mechanism based on Rake Angle (Style of Faulting, sof). 0: Strike-slip (rake angles:
+    Mechanism based on Rake Angle (aka Style of Faulting). Rake angles defining the
+    different categories might vary according to the source datasets 
+    0: Strike-slip (rake angles:
     -180 < Rake < -150, -30 < Rake < 30, 150 < Rake < 180). 1: Normal (-120 < Rake < -60).
     2: Reverse (60 < Rake < 120). 3: Reverse-Oblique (30 < Rake < 60, 120 < Rake < 150),
     4: Normal-Oblique (-150 < Rake < -120, -60 < Rake < -30)
