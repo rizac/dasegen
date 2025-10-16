@@ -317,13 +317,13 @@ def main():
         sys.exit(1)
 
     dest_root_path = get_dest_dir_path()
-    dest_metadata_path = join(dest_root_path, splitext(basename(__file__))[0] + ".csv")
+    dest_metadata_path = join(dest_root_path, "metadata.hdf")
     dest_waveforms_path = join(dest_root_path, "waveforms")
 
     if not isdir(dest_root_path):
         os.makedirs(dest_root_path)
 
-    log_dest_path = dest_metadata_path + ".log"
+    log_dest_path = join(dest_root_path, basename(__file__) + ".log")
     setup_logging(log_dest_path)
 
     logging.info(f'Script: {" ".join([sys.executable] + sys.argv)}')
