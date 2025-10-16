@@ -538,9 +538,9 @@ def download_metadata_fields(dest_path):
     Download from github the YAML metadat fields and saves it
     into dest_root_path. Returns the dict of the parsed yaml
     """
-    with urllib.request.urlopen("https://raw.githubusercontent.com"
-                                "/rizac/dasegen/refs/heads/main/"
-                                f"metadata_fields.yml?nocache={int(time.time())}") as response:
+    with urllib.request.urlopen(
+            "https://raw.githubusercontent.com/rizac/dasegen/main/metadata_fields.yml"
+    ) as response:
         metadata_fields_content = response.read()
         # Load YAML into Python dict
         metadata_fields = yaml.safe_load(metadata_fields_content.decode("utf-8"))
