@@ -293,8 +293,8 @@ def main():
     if not isdir(dest_root_path):
         os.makedirs(dest_root_path)
 
-    log_dest_path = join(dest_root_path, basename(__file__) + ".log")
-    setup_logging(log_dest_path)
+    dest_log_path = join(dest_root_path, basename(__file__) + ".log")
+    setup_logging(dest_log_path)
 
     logging.info(f'Script: {" ".join([sys.executable] + sys.argv)}')
     print(f"Source metadata path: {source_metadata_path}")
