@@ -69,10 +69,9 @@ id_columns = {
 # csv arguments for source metadata (e/g. 'header'= None)
 source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
 
-# relative error threshold. After 100 waveforms, when waveforms with error / warnings
-# get higher than this number (relative to the total number of processed waveforms)
-# the program will stop. 0.05 means 5% max of erroneous waveforms
-re_err_th = 0.333333
+# ratio of waveforms successfully processed, in [0,1]. The program will stop otherwise
+# (this makes spotting errors and checking log faster):
+waveforms_ok_ratio = 1/3
 
 
 def accept_file(file_path) -> bool:
@@ -311,12 +310,12 @@ def process_waveforms(
 def main():
 
     try:
-        source_metadata_path, source_waveforms_path = read_script_args(sys.argv)
+        source_metadata_path, source_waveforms_path, dest_root_path = \
+            read_script_args(sys.argv)
     except Exception as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
 
-    dest_root_path = get_dest_dir_path()
     dest_metadata_path = join(dest_root_path, "metadata.hdf")
     dest_waveforms_path = join(dest_root_path, "waveforms")
 
@@ -471,11 +470,14 @@ def main():
                 )
                 errs += 1
 
-            if rec_num > 100 and errs / rec_num > re_err_th:
-                msg = 'Too many errors, check log file and re-run module'
-                print(msg, file=sys.stderr)
-                logging.error(msg)
-                sys.exit(1)
+            if rec_num / max_rows > (1 - waveforms_ok_ratio):
+                # we processed enough data (1 - waveforms_ok_ratio)
+                if errs / max_rows > waveforms_ok_ratio:
+                    # the processed data error ratio is too high:
+                    msg = f'Too many errors ({errs} of {max_rows} records)'
+                    print(msg, file=sys.stderr)
+                    logging.error(msg)
+                    sys.exit(1)
 
         if new_metadata:
             # save metadata:
@@ -497,30 +499,21 @@ def main():
 
 
 def read_script_args(sys_argv):
-    source_metadata_path = None
-    source_waveforms_path = None
 
-    if len(sys.argv) == 3:
-        source_metadata_path = sys_argv[1]
-        source_waveforms_path = sys_argv[2]
+    if len(sys_argv) != 2:
+        raise ValueError(f'Error: invalid argument, provide a valid yaml file')
 
-    err_noarg = not source_metadata_path or not source_waveforms_path
-    err_no_file = False
-    if not err_noarg:
-        err_no_file = not isfile(source_metadata_path) or not isdir(
-            source_waveforms_path)
+    yaml_path = sys_argv[1]
+    if not isfile(yaml_path):
+        raise ValueError(f'Error: the file {yaml_path} does not exist')
 
-    if err_no_file or err_noarg:
-        raise ValueError(
-            f'Error: {"invalid arguments" if err_noarg else "invalid file/dir path"}\n'
-            f"Usage: {sys.argv[0]} <metadata_table_file> <time_histories_dir>\n"
-            f"Process and harmonize an old dataset into a new one. "
-            f"Takes every row of metadata_table_file (csv), finds the "
-            f"relative 3 time histories inside <time_histories_dir> (recursively)"
-            f"and saves the new metadata in ./metadata.csv and the new processed time"
-            f"histories in ./waveforms (. refers to this script current directory)"
-        )
-    return source_metadata_path, source_waveforms_path
+    try:
+        with open(yaml_path) as _:
+            data = yaml.safe_load(_)
+        return data['source_metadata'], data['source_data'], data['destination']
+
+    except Exception as exc:
+        raise ValueError(f'Error: {yaml_path} error: {exc}')
 
 
 def setup_logging(filename):
@@ -640,11 +633,6 @@ def cast_dtypes(values: Any, dtype: Union[str, pd.CategoricalDtype]):
     elif isinstance(dtype, pd.CategoricalDtype):
         return values.astype(dtype)
     raise AssertionError(f'Unrecognized dtype {dtype}')
-
-
-def get_dest_dir_path():
-    """destination root path, defaults to this script dir"""
-    return dirname(abspath(__file__))
 
 
 def get_file_path(metadata: dict):
