@@ -2,8 +2,11 @@ import shutil
 import os
 import sys
 from os.path import dirname, join, abspath, isdir
-from io import StringIO
+from io import StringIO, BytesIO
 from unittest.mock import patch
+
+import yaml
+
 import create_ngawest_dataset, create_kiknet_knet_dataset
 
 import pytest
@@ -33,39 +36,29 @@ def setup_teardown():
     tearDown()
 
 
-@patch("create_ngawest_dataset.get_dest_dir_path",
-       return_value=join(dest_data_dir, 'nga'))
-@patch("create_ngawest_dataset.re_err_th", 1.01)
-def test_nga_west2(mocked_dest_dir):
+@patch("create_ngawest_dataset.waveforms_ok_ratio", 1.01)
+def test_nga_west2():
+
+    my_dest_data_dir = join(dest_data_dir, 'nga')
+    os.mkdir(my_dest_data_dir)
+    config_path = join(my_dest_data_dir, "config.yml")
+
+    with open(config_path, 'w') as _:
+        _.write(f"""
+source_metadata: "{join(source_data_dir, "ngawest2", "ngawest2_metadata.csv")}"
+source_data: "{join(source_data_dir, "ngawest2")}"
+destination: "{my_dest_data_dir}"
+""")
+
     # Save originals
     original_argv = sys.argv
     original_stdout = sys.stdout
-
-    # try:
-    #
-    #     # Patch argv and stdout
-    #     sys.argv = [
-    #         'create_ngawest_dataset.py'
-    #     ]
-    #     sys.stdout = StringIO()
-    #
-    #     # Run main
-    #
-    #     create_ngawest_dataset.main()
-    #
-    # except SystemExit as err:
-    #     assert err.args[0] == 1
-    # finally:
-    #     # Restore originals
-    #     sys.argv = original_argv
-    #     sys.stdout = original_stdout
 
     try:
         # Patch argv and stdout
         sys.argv = [
             'create_ngawest_dataset.py',
-            join(source_data_dir, "ngawest2", "ngawest2_metadata.csv"),
-            join(source_data_dir, "ngawest2")
+            config_path
         ]
         sys.stdout = StringIO()
 
@@ -75,7 +68,7 @@ def test_nga_west2(mocked_dest_dir):
     except SystemExit as err:
         assert err.args[0] == 0
 
-        assert isdir(join(mocked_dest_dir.return_value, 'waveforms'))
+        assert isdir(join(my_dest_data_dir, 'waveforms'))
         # Get printed output
         output = sys.stdout.getvalue()
 
@@ -85,50 +78,38 @@ def test_nga_west2(mocked_dest_dir):
         sys.stdout = original_stdout
 
 
-@patch("create_kiknet_knet_dataset.get_dest_dir_path",
-       return_value=join(dest_data_dir, 'knet'))
-@patch("create_kiknet_knet_dataset.re_err_th", 1.01)
-def test_knet(mocked_dest_dir):
+@patch("create_kiknet_knet_dataset.waveforms_ok_ratio", 1.01)
+def test_knet():
+    my_dest_data_dir = join(dest_data_dir, 'knet')
+    os.mkdir(my_dest_data_dir)
+    config_path = join(my_dest_data_dir, "config.yml")
+
+    with open(config_path, 'w') as _:
+        _.write(f"""
+source_metadata: "{join(source_data_dir, "kiknet_knet", "kiknet_knet_metadata.csv")}"
+source_data: "{join(source_data_dir, "kiknet_knet")}"
+destination: "{my_dest_data_dir}"
+""")
+
     # Save originals
     original_argv = sys.argv
     original_stdout = sys.stdout
 
     try:
-
-        # Patch argv and stdout
-        sys.argv = [
-            'create_kiknet_knet_dataset.py'
-        ]
-        sys.stdout = StringIO()
-
-        # Run main
-
-        create_kiknet_knet_dataset.main()
-
-    except SystemExit as err:
-        assert err.args[0] == 1
-    finally:
-        # Restore originals
-        sys.argv = original_argv
-        sys.stdout = original_stdout
-
-    try:
         # Patch argv and stdout
         sys.argv = [
             'create_kiknet_knet_dataset.py',
-            join(source_data_dir, "kiknet_knet", "kiknet_knet_metadata.csv"),
-            join(source_data_dir, "kiknet_knet")
+            config_path
         ]
         sys.stdout = StringIO()
 
         # Run main
-
         create_kiknet_knet_dataset.main()
 
     except SystemExit as err:
         assert err.args[0] == 0
 
-        assert isdir(join(mocked_dest_dir.return_value, 'waveforms'))
+        assert isdir(join(my_dest_data_dir, 'waveforms'))
         # Get printed output
         output = sys.stdout.getvalue()
 

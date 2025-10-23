@@ -325,7 +325,8 @@ def main():
     dest_log_path = join(dest_root_path, basename(__file__) + ".log")
     setup_logging(dest_log_path)
 
-    logging.info(f'Script: {" ".join([sys.executable] + sys.argv)}')
+    logging.info(f'Working directory: {abspath(os.getcwd())}')
+    logging.info(f'Run command      : {" ".join([sys.executable] + sys.argv)}')
     print(f"Source metadata path: {source_metadata_path}")
     print(f"Source waveforms path: {source_waveforms_path}")
 
@@ -348,9 +349,12 @@ def main():
     print("Loading metadata fields from git repo")
     # Download and save locally
     try:
-        metadata_fields = download_metadata_fields(
-            join(dest_root_path, 'metadata_fields.yml')
-        )
+        dest_metadata_fields_path = join(dest_root_path, 'metadata_fields.yml')
+        metadata_fields = get_metadata_fields(dest_metadata_fields_path)
+        with open(dest_metadata_fields_path, "r") as _:
+            logging.info(f'Input YML file content:')
+            logging.info(_.read())
+            logging.info('')
     except Exception as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
@@ -526,15 +530,13 @@ def setup_logging(filename):
     logger.setLevel(logging.INFO)
 
 
-def download_metadata_fields(dest_path):
+def get_metadata_fields(dest_path):
     """
-    Download from github the YAML metadat fields and saves it
+    Get the YAML metadat fields and saves it
     into dest_root_path. Returns the dict of the parsed yaml
     """
-    with urllib.request.urlopen(
-            "https://raw.githubusercontent.com/rizac/dasegen/main/metadata_fields.yml"
-    ) as response:
-        metadata_fields_content = response.read()
+    with open(join(dirname(__file__), 'metadata_fields.yml'), 'rb') as _:
+        metadata_fields_content = _.read()
         # Load YAML into Python dict
         metadata_fields = yaml.safe_load(metadata_fields_content.decode("utf-8"))
         # save to file
