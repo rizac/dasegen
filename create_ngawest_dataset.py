@@ -71,7 +71,7 @@ source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
 
 # ratio of waveforms successfully processed, in [0,1]. The program will stop otherwise
 # (this makes spotting errors and checking log faster):
-waveforms_ok_ratio = 1/4
+waveforms_ok_ratio = 1/5
 
 
 def accept_file(file_path) -> bool:
@@ -400,7 +400,7 @@ def main():
     print(f'Processing records in {source_metadata_path}')
     rec_num = 0
     csv_args = dict(source_metadata_csv_args)
-    csv_args.setdefault('chunksize', 100000)
+    csv_args.setdefault('chunksize', 10000)
     errs = 0
     for metadata_chunk in pd.read_csv(source_metadata_path, **csv_args):
         new_metadata = []
@@ -416,10 +416,7 @@ def main():
                 step_name = "find_waveform_paths"
                 h1, h2, v = find_waveforms_path(record, files)
 
-                # read waveforms separately:
-                f_name = h1 if h1 else h2 if h2 else v if v else None
-
-                if f_name is not None:
+                if (h1 is not None) or (h2 is not None) or (v is not None):
                     for comp_name in components:
                         step_name = f"read_waveform ({comp_name})"
                         comp_path = {'h1': h1, 'h2': h2, 'v': v}[comp_name]
@@ -428,7 +425,7 @@ def main():
 
                     # process waveforms
                     step_name = "save_waveforms"  # noqa
-                    old_record = dict(record)  # for testing purposes
+                    # old_record = dict(record)  # for testing purposes
                     new_record, h1, h2, v = process_waveforms(
                         record,
                         components.get('h1'),
