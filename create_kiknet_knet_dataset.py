@@ -289,17 +289,6 @@ def main():
     dest_metadata_path = join(dest_root_path, "metadata.hdf")
     dest_waveforms_path = join(dest_root_path, "waveforms")
 
-    if not isdir(dest_root_path):
-        os.makedirs(dest_root_path)
-
-    dest_log_path = join(dest_root_path, basename(__file__) + ".log")
-    setup_logging(dest_log_path)
-
-    logging.info(f'Working directory: {abspath(os.getcwd())}')
-    logging.info(f'Run command      : {" ".join([sys.executable] + sys.argv)}')
-    print(f"Source metadata path: {source_metadata_path}")
-    print(f"Source waveforms path: {source_waveforms_path}")
-
     existing = isfile(dest_metadata_path) or isdir(dest_waveforms_path)
     if existing:
         res = input(
@@ -315,8 +304,17 @@ def main():
     if isfile(dest_metadata_path):
         os.unlink(dest_metadata_path)
 
-    # sanitize the metadata using associated yaml:
-    print("Loading metadata fields from git repo")
+    if not isdir(dest_root_path):
+        os.makedirs(dest_root_path)
+
+    dest_log_path = join(dest_root_path, basename(__file__) + ".log")
+    setup_logging(dest_log_path)
+
+    logging.info(f'Working directory: {abspath(os.getcwd())}')
+    logging.info(f'Run command      : {" ".join([sys.executable] + sys.argv)}')
+    print(f"Source metadata path: {source_metadata_path}")
+    print(f"Source waveforms path: {source_waveforms_path}")
+
     # Download and save locally
     try:
         dest_metadata_fields_path = join(dest_root_path, 'metadata_fields.yml')
