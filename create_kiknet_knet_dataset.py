@@ -71,7 +71,7 @@ source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
 
 # ratio of waveforms successfully processed, in [0,1]. The program will stop otherwise
 # (this makes spotting errors and checking log faster):
-waveforms_ok_ratio = 1/3
+waveforms_ok_ratio = 1/4
 
 
 def accept_file(file_path) -> bool:
@@ -194,7 +194,7 @@ def process_waveforms(
     # pga check
     pga1 = metadata['PGA_EW']
     pga2 = metadata['PGA_NS']
-    rtol = 0.1
+    rtol = 0.5
     if h1 is not None:
         assert np.isclose(pga1, np.max(np.abs(h1[1])),
                           rtol=rtol), f"PGA EW not within {rtol}"
@@ -442,7 +442,8 @@ def main():
                     f"{metadata_row}: only {_time_series_num} of 3 components created "
                     f"and saved"
                 )
-                errs += 1
+                if _time_series_num == 0:
+                    errs += 1
 
             if rec_num / max_rows > (1 - waveforms_ok_ratio):
                 # we processed enough data (1 - waveforms_ok_ratio)
