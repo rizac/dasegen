@@ -352,9 +352,7 @@ def main():
         dest_metadata_fields_path = join(dest_root_path, 'metadata_fields.yml')
         metadata_fields = get_metadata_fields(dest_metadata_fields_path)
         with open(dest_metadata_fields_path, "r") as _:
-            logging.info(f'Input YML file content:')
-            logging.info(_.read())
-            logging.info('')
+            logging.info(f'Metadata fields file: {dest_metadata_fields_path}')
     except Exception as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
