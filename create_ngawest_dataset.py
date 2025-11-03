@@ -415,67 +415,70 @@ def main():
 
             step_name = ""
             components = {'h1': None, 'h2': None, 'v': None}
+            h1_path, h2_path, v_path = None, None, None
             try:
                 step_name = "find_waveform_paths"
-                h1, h2, v = find_waveforms_path(record, files)
+                h1_path, h2_path, v_path = find_waveforms_path(record, files)
 
-                if (h1 is not None) or (h2 is not None) or (v is not None):
-                    for comp_name in components:
-                        step_name = f"read_waveform ({comp_name})"
-                        comp_path = {'h1': h1, 'h2': h2, 'v': v}[comp_name]
-                        if comp_path:
-                            components[comp_name] = read_waveform(comp_path, record)
+                if (h1_path is None) and (h2_path is None) and (v_path is None):
+                    raise Exception('No path for waveform components found')
 
-                    # process waveforms
-                    step_name = "save_waveforms"  # noqa
-                    # old_record = dict(record)  # for testing purposes
-                    new_record, h1, h2, v = process_waveforms(
-                        record,
-                        components.get('h1'),
-                        components.get('h2'),
-                        components.get('v')
+                for comp_name in components:
+                    step_name = f"read_waveform ({comp_name})"
+                    comp_path = {'h1': h1_path, 'h2': h2_path, 'v': v_path}[comp_name]
+                    if comp_path:
+                        components[comp_name] = read_waveform(comp_path, record)
+
+                if all(_ is None for _ in components.values()):
+                    raise Exception('No waveform component read')
+                elif any(_ is None for _ in components.values()):
+                    logging.warning(
+                        f"[WARN] {metadata_row}: only "
+                        f"{sum(_ is not None for _ in components.values())} "
+                        f"of 3 components created and saved"
                     )
-                    # check record data types:
-                    clean_record = {'id': rec_num}
-                    for f in new_record.keys():
-                        default_val = metadata_fields[f].get('default')
-                        val = new_record.get(f, default_val)
-                        step_name = f"_cast_dtype (field '{f}')"
-                        dtype = metadata_fields[f]['dtype']
-                        try:
-                            clean_record[f] = cast_dtype(val, dtype)
-                        except AssertionError:
-                            raise AssertionError(f'Field {f}: invalid value {str(val)}')
-                    new_metadata.append(clean_record)
 
-                    # save waveforms
-                    step_name = "save_waveforms"  # noqa
-                    file_path = join(dest_waveforms_path, get_file_path(clean_record))
-                    save_waveforms(file_path, h1, h2, v)
+                # process waveforms
+                step_name = "save_waveforms"  # noqa
+                # old_record = dict(record)  # for testing purposes
+                new_record, h1, h2, v = process_waveforms(
+                    record,
+                    components.get('h1'),
+                    components.get('h2'),
+                    components.get('v')
+                )
+                # check record data types:
+                clean_record = {'id': rec_num}
+                for f in new_record.keys():
+                    default_val = metadata_fields[f].get('default')
+                    val = new_record.get(f, default_val)
+                    step_name = f"_cast_dtype (field '{f}')"
+                    dtype = metadata_fields[f]['dtype']
+                    try:
+                        clean_record[f] = cast_dtype(val, dtype)
+                    except AssertionError:
+                        raise AssertionError(f'Field {f}: invalid value {str(val)}')
+                new_metadata.append(clean_record)
 
-                    avail_comps, sampling_rate = \
-                        finalize_metadata(clean_record, h1, h2, v)
-                    clean_record['available_components'] = avail_comps
-                    clean_record['sampling_rate'] = sampling_rate if \
-                        pd.notna(sampling_rate) else \
-                        int(metadata_fields['sampling_rate']['default'])
+                # save waveforms
+                step_name = "save_waveforms"  # noqa
+                file_path = join(dest_waveforms_path, get_file_path(clean_record))
+                save_waveforms(file_path, h1, h2, v)
+
+                avail_comps, sampling_rate = \
+                    finalize_metadata(clean_record, h1, h2, v)
+                clean_record['available_components'] = avail_comps
+                clean_record['sampling_rate'] = sampling_rate if \
+                    pd.notna(sampling_rate) else \
+                    int(metadata_fields['sampling_rate']['default'])
 
             except Exception as exc:
                 logging.error(
-                    f"Error in {step_name}, {metadata_row}: {exc}"
+                    f"[ERROR] {metadata_row}: {exc} | Step: `{step_name}` | "
+                    f"h1_path : {h1_path or 'N/A'} | h2_path : {h2_path or 'N/A'}"
                 )
                 errs += 1
                 continue
-
-            # if any waveform is None, something went wrong, continue but add an error
-            _time_series_num = sum(_ is not None for _ in components.values())
-            if _time_series_num < 3:
-                logging.warning(
-                    f"{metadata_row}: only {_time_series_num} of 3 components created "
-                    f"and saved"
-                )
-                if _time_series_num == 0:
-                    errs += 1
 
             if rec_num / max_rows > (1 - waveforms_ok_ratio):
                 # we processed enough data (1 - waveforms_ok_ratio)
