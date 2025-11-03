@@ -46,7 +46,7 @@ import json
 import sys
 import fnmatch
 from numpy import ndarray
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import pandas as pd
 import numpy as np
 import glob
@@ -211,6 +211,7 @@ def process_waveforms(
         'rupture_distance': pd.Series([metadata["Rrup_0"], metadata["Rrup_1"]]).mean(),
         # 'fault_normal_distance': None,
         'origin_time': origin_time,
+        'origin_date': pd.NaT,
         'event_latitude': metadata["evLat._Meta"],
         'event_longitude': metadata["evLong._Meta"],
         'event_depth': metadata["Depth. (km)_Meta"],

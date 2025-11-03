@@ -51,6 +51,13 @@ event_id:
 origin_time:
   dtype: datetime
   help: the event origin time (as ISO formatted string, e.g. 2006-03-31T00:12:24)
+origin_date:
+  dtype: datetime
+  help: >-
+    the event origin date (as ISO formatted string, e.g. 2006-03-31T00:00:00). This
+    field is missing (NA) if origin_time is available. Otherwise, origin_time 
+    is missing (NA) and this field denotes the origin_time at daily resolution (hours 
+    minutes and seconds all unknown and set to 0)
 event_latitude:
   dtype: float
   help: Event latitude (hypocenter latitude, in deg) in [-90, 90]

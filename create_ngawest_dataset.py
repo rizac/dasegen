@@ -46,7 +46,7 @@ import json
 import sys
 import fnmatch
 from numpy import ndarray
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import pandas as pd
 import numpy as np
 import glob
@@ -199,13 +199,19 @@ def process_waveforms(
     month_day = str(metadata['MODY'])
     if len(month_day) == 3:
         month_day = '0' + month_day
-    hour_min = str(metadata['HRMN'])
-    if len(hour_min) == 3:
-        hour_min = '0' + hour_min
-    assert len(month_day) == len(hour_min) == 4, 'month_day or hour_min invalid'
     month, day = int(month_day[:2]), int(month_day[2:])
-    hour, min = int(hour_min[:2]), int(hour_min[2:])
-    evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
+
+    hour_min = str(metadata['HRMN'])
+    if hour_min in (-999, '-999'):
+        evt_time = pd.NaT
+        evt_date = date(year=year, month=month, day=day)
+    else:
+        if len(hour_min) == 3:
+            hour_min = '0' + hour_min
+        assert len(month_day) == len(hour_min) == 4, 'month_day or hour_min invalid'
+        hour, min = int(hour_min[:2]), int(hour_min[2:])
+        evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
+        evt_date = pd.NaT
     evt_id = str(metadata.get('EQID'))
     sta_id = str(metadata["station_id"])
 
@@ -250,6 +256,7 @@ def process_waveforms(
         'rupture_distance': metadata["ClstD (km)"],
         'fault_normal_distance': metadata['Rx'],
         'origin_time': evt_time,
+        'origin_date': evt_date,
         'event_latitude': metadata["Hypocenter Latitude (deg)"],
         'event_longitude': metadata["Hypocenter Longitude (deg)"],
         'event_depth': metadata["Hypocenter Depth (km)"],
