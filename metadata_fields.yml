@@ -215,7 +215,7 @@ filter_type:
     O: Ormsby, A: Acausal Butterworth, C Causal butterworth
 npass:
   dtype: int
-  help: Number of passes of filter. ) when not applicable / not available
+  help: Number of passes of filter. 0 when not applicable / not available
   default: 0
 nroll:
   dtype: float
@@ -249,7 +249,9 @@ sampling_rate:
   help: >- 
     The sampling rate. If non-zero, it is the sampling rate of all available
     components (h1, h2, v). If zero, it denotes some error (sampling rate not equal among 
-    components, or non-integer)
+    components, or non-integer): in this case, each waveform has to be opened and its
+    `dt` will return the inverse of the sampling rate
+  default: 0
 start_time:
   dtype: datetime
   help: start time of the time histories (h1, h2, v). Assumes all components start time is the same

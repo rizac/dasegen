@@ -449,7 +449,9 @@ def main():
                     avail_comps, sampling_rate = \
                         finalize_metadata(clean_record, h1, h2, v)
                     clean_record['available_components'] = avail_comps
-                    clean_record['sampling_rate'] = sampling_rate
+                    clean_record['sampling_rate'] = sampling_rate if \
+                        pd.notna(sampling_rate) else \
+                        int(metadata_fields['sampling_rate']['default'])
 
             except Exception as exc:
                 logging.error(
@@ -563,7 +565,7 @@ def read_wafevorms(file_path):
 def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
     if dtype == 'int':
         assert isinstance(val, int) or (isinstance(val, float) and int(val) == val)
-        return int(val)
+        val = int(val)
     elif dtype == 'bool':
         if val in {0, 1}:
             val = bool(val)
