@@ -387,9 +387,9 @@ def main():
                     min_itemsize[dest_col] = max(old_val, len(val))
 
     print(f'Scanning {source_waveforms_path}')
-    files = scan_dir(source_waveforms_path)
+    files, num_files = scan_dir(source_waveforms_path)
 
-    print(f'Found {len(files)} file(s) as time history candidates')
+    print(f'Found {num_files} file(s) as time history candidates')
     pbar = tqdm(
         total=max_rows,
         bar_format="{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
@@ -542,17 +542,20 @@ def setup_logging(filename):
     logger.setLevel(logging.INFO)
 
 
-def scan_dir(source_root_dir) -> dict[str, Union[dict, str]]:
+def scan_dir(source_root_dir) -> tuple[dict[str, Union[dict, str]], int]:
     """Scan the given directory"""
     tree = {}
+    num_files = 0
     for entry in os.scandir(source_root_dir):
         if entry.is_dir():
-            tree[entry.name] = scan_dir(entry.path)
+            tree[entry.name], _ = scan_dir(entry.path)
+            num_files += _
         else:
             file = os.path.abspath(entry.path)
             if accept_file(file):
                 tree[entry.name] = os.path.abspath(entry.path)
-    return tree
+                num_files += 1
+    return tree, num_files
 
 
 def get_metadata_fields(dest_path):
