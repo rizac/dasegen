@@ -204,14 +204,14 @@ def process_waveforms(
     hour_min = str(metadata['HRMN'])
     if hour_min in (-999, '-999'):
         evt_time = pd.NaT
-        evt_date = date(year=year, month=month, day=day)
     else:
         if len(hour_min) == 3:
             hour_min = '0' + hour_min
         assert len(month_day) == len(hour_min) == 4, 'month_day or hour_min invalid'
         hour, min = int(hour_min[:2]), int(hour_min[2:])
         evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
-        evt_date = pd.NaT
+    # use datetimes also for event_date (for simplicity when casting later):
+    evt_date = evt_time.replace(hour=0, minute=0, second=0, microsecond=0)
     evt_id = str(metadata.get('EQID'))
     sta_id = str(metadata["station_id"])
 

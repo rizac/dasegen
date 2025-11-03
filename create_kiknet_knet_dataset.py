@@ -190,6 +190,8 @@ def process_waveforms(
     origin_time = datetime.fromisoformat(metadata["Origin_Meta"])
     start_time = datetime.strptime(str(metadata['new_record_start_UTC']),
                                    "%Y%m%d%H%M%S")
+    # use datetimes also for event_date (for simplicity when casting later):
+    origin_date = origin_time.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # pga check
     pga1 = metadata['PGA_EW']
@@ -211,7 +213,7 @@ def process_waveforms(
         'rupture_distance': pd.Series([metadata["Rrup_0"], metadata["Rrup_1"]]).mean(),
         # 'fault_normal_distance': None,
         'origin_time': origin_time,
-        'origin_date': pd.NaT,
+        'origin_date': origin_date,
         'event_latitude': metadata["evLat._Meta"],
         'event_longitude': metadata["evLong._Meta"],
         'event_depth': metadata["Depth. (km)_Meta"],

@@ -50,14 +50,13 @@ event_id:
     especially for flatfiles with many distinct event IDs)
 origin_time:
   dtype: datetime
-  help: the event origin time (as ISO formatted string, e.g. 2006-03-31T00:12:24)
+  help: the event origin time. This field could be missing (NA) for old events (see origin_date)
 origin_date:
   dtype: datetime
   help: >-
-    the event origin date (as ISO formatted string, e.g. 2006-03-31T00:00:00). This
-    field is missing (NA) if origin_time is available. Otherwise, origin_time 
-    is missing (NA) and this field denotes the origin_time at daily resolution (hours 
-    minutes and seconds all unknown and set to 0)
+    Event origin date. Values of this field must always be provided and have hours, 
+    minutes, and seconds arbitrarily set to 00:00. This field is useful when origin_time 
+    is not available to denote that the most precise available origin time is at daily resolution
 event_latitude:
   dtype: float
   help: Event latitude (hypocenter latitude, in deg) in [-90, 90]
