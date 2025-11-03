@@ -79,8 +79,10 @@ def accept_file(file_path) -> bool:
     return splitext(file_path)[1].startswith('.AT')
 
 
-def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
-        -> tuple[Optional[str], Optional[str], Optional[str]]:
+def find_waveforms_path(
+        metadata: dict,
+        waveform_file_paths: dict[str, Union[dict[str], str]]
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Get the full source paths of the waveforms (h1, h2 and v components, in this
     order) from the given row of your source metadata.
     Paths can be empty or None, meaning that the relative file is missing. This has to
@@ -91,6 +93,10 @@ def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
         Each dict key represents a Metadata Field (Column). Note that float, str,
         datetime and categorical values can also be None (e.g., if the Metadata cell
         was empty)
+    :param waveform_file_paths: dict of string denoting the scanned time histories
+        source directory. It is a dict of strings denoting directory names or file names.
+        If directory names, the mapped value is a nested dict with the same structure,
+        otherwise it is the file absolute path
     """
     metadata_paths = [
         ('' if pd.isna(metadata["fpath_h1"]) else metadata["fpath_h1"]).strip(),
@@ -101,22 +107,27 @@ def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
 
     rsn = str(metadata['Record Sequence Number'])
 
-    for file_abs_path in waveform_file_paths:
-        bname = basename(file_abs_path)
-        for i in range(len(metadata_paths)):
-            metadata_path = metadata_paths[i]
-            if not metadata_path or not bname:
-                continue
-            metadata_path = f'{rsn}_{metadata_path}'
-            if bname.startswith('RSN_'):
-                metadata_path = f'RSN_{metadata_path}'
-            elif bname.startswith('RSN'):
-                metadata_path = f'RSN{metadata_path}'
-            if metadata_path == bname:
-                file_paths[i].append(file_abs_path)
-                continue
+    for dir_name in waveform_file_paths:
+        for file_abs_path in waveform_file_paths[dir_name].values():
+            bname = basename(file_abs_path)
+            for i in range(len(metadata_paths)):
+                metadata_path = metadata_paths[i]
+                if not metadata_path or not bname:
+                    continue
+                metadata_path = f'{rsn}_{metadata_path}'
+                if bname.startswith('RSN_'):
+                    metadata_path = f'RSN_{metadata_path}'
+                elif bname.startswith('RSN'):
+                    metadata_path = f'RSN{metadata_path}'
+                if metadata_path == bname:
+                    file_paths[i].append(file_abs_path)
+                    continue
 
-    return tuple(_[0] if len(_) == 1 else None for _ in file_paths)
+    return (
+        file_paths[0][0] if len(file_paths[0]) == 1 else None,
+        file_paths[1][0] if len(file_paths[1]) == 1 else None,
+        file_paths[2][0] if len(file_paths[2]) == 1 else None
+    )
 
 
 def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
@@ -376,12 +387,7 @@ def main():
                     min_itemsize[dest_col] = max(old_val, len(val))
 
     print(f'Scanning {source_waveforms_path}')
-    files = set()
-    for dirpath, dirnames, filenames in os.walk(source_waveforms_path):
-        for f in filenames:
-            candidate = abspath(join(dirpath, f))
-            if accept_file(candidate):
-                files.add(candidate)
+    files = scan_dir(source_waveforms_path)
 
     print(f'Found {len(files)} file(s) as time history candidates')
     pbar = tqdm(
@@ -534,6 +540,19 @@ def setup_logging(filename):
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
+
+
+def scan_dir(source_root_dir) -> dict[str, Union[dict, str]]:
+    """Scan the given directory"""
+    tree = {}
+    for entry in os.scandir(source_root_dir):
+        if entry.is_dir():
+            tree[entry.name] = scan_dir(entry.path)
+        else:
+            file = os.path.abspath(entry.path)
+            if accept_file(file):
+                tree[entry.name] = os.path.abspath(entry.path)
+    return tree
 
 
 def get_metadata_fields(dest_path):

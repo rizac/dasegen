@@ -79,8 +79,10 @@ def accept_file(file_path) -> bool:
     return splitext(file_path)[1] in {'.UD2', '.NS2', '.EW2', '.UD', '.NS', '.EW'}  # with *1 => borehole  # FIXME
 
 
-def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
-        -> tuple[Optional[str], Optional[str], Optional[str]]:
+def find_waveforms_path(
+        metadata: dict,
+        waveform_file_paths: dict[str, Union[dict, str]]
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Get the full source paths of the waveforms (h1, h2 and v components, in this
     order) from the given row of your source metadata.
     Paths can be empty or None, meaning that the relative file is missing. This has to
@@ -91,6 +93,10 @@ def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
         Each dict key represents a Metadata Field (Column). Note that float, str,
         datetime and categorical values can also be None (e.g., if the Metadata cell
         was empty)
+    :param waveform_file_paths: dict of string denoting the scanned time histories
+        source directory. It is a dict of strings denoting directory names or file names.
+        If directory names, the mapped value is a nested dict with the same structure,
+        otherwise it is the file absolute path
     """
     file_h1 = []
     file_h2 = []
@@ -104,21 +110,31 @@ def find_waveforms_path(metadata: dict, waveform_file_paths: set[str]) \
     orig_time_str = orig_time.strftime("%y%m%d%H%M")
     name = f'{st_id}{orig_time_str}'
 
-    for file_abs_path in waveform_file_paths:
-        bname = basename(file_abs_path)
-        dir_bname = basename(dirname(file_abs_path))
-        if dir_bname != str(metadata['EQ_Code']) or not bname.startswith(name):
+    eq_code = str(metadata['EQ_Code'])
+
+    for dir_name in ['knet', 'kik']:
+        dir_name = waveform_file_paths[dir_name]
+        subdir_name1 = eq_code[:4]
+        subdir_name2 = str(int(eq_code[4:6]))
+        try:
+            dir_name = dir_name[subdir_name1][subdir_name2][eq_code]
+        except KeyError:
             continue
-        ext = splitext(bname)[1]
-        if ext in ('.UD', '.UD2'):  # UD1: borehole
-            file_v.append(file_abs_path)
-            continue
-        if ext in ('.NS', '.NS2'):  # see note above
-            file_h2.append(file_abs_path)
-            continue
-        if ext in ('.EW', '.EW2'):  # see note above
-            file_h1.append(file_abs_path)
-            continue
+
+        for file_abs_path in dir_name.values():  # noqa
+            bname = basename(file_abs_path)
+            if not bname.startswith(name):
+                continue
+            ext = splitext(bname)[1]
+            if ext in ('.EW', '.EW2'):  # see note above
+                file_h1.append(file_abs_path)
+                continue
+            if ext in ('.NS', '.NS2'):  # see note above
+                file_h2.append(file_abs_path)
+                continue
+            if ext in ('.UD', '.UD2'):  # UD1: borehole
+                file_v.append(file_abs_path)
+                continue
 
     return (
         file_h1[0] if len(file_h1) == 1 else None,
@@ -342,12 +358,7 @@ def main():
                     min_itemsize[dest_col] = max(old_val, len(val))
 
     print(f'Scanning {source_waveforms_path}')
-    files = set()
-    for dirpath, dirnames, filenames in os.walk(source_waveforms_path):
-        for f in filenames:
-            candidate = abspath(join(dirpath, f))
-            if accept_file(candidate):
-                files.add(candidate)
+    files = scan_dir(source_waveforms_path)
 
     print(f'Found {len(files)} file(s) as time history candidates')
     pbar = tqdm(
@@ -500,6 +511,19 @@ def setup_logging(filename):
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
+
+
+def scan_dir(source_root_dir) -> dict[str, Union[dict, str]]:
+    """Scan the given directory"""
+    tree = {}
+    for entry in os.scandir(source_root_dir):
+        if entry.is_dir():
+            tree[entry.name] = scan_dir(entry.path)
+        else:
+            file = os.path.abspath(entry.path)
+            if accept_file(file):
+                tree[entry.name] = os.path.abspath(entry.path)
+    return tree
 
 
 def get_metadata_fields(dest_path):
