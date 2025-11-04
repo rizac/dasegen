@@ -36,7 +36,7 @@ def setup_teardown():
     tearDown()
 
 
-@patch("create_ngawest_dataset.waveforms_ok_ratio", 1.01)
+@patch("create_ngawest_dataset.min_waveforms_ok_ratio", 0)
 def test_nga_west2():
 
     my_dest_data_dir = join(dest_data_dir, 'nga')
@@ -78,7 +78,7 @@ destination: "{my_dest_data_dir}"
         sys.stdout = original_stdout
 
 
-@patch("create_kiknet_knet_dataset.waveforms_ok_ratio", 1.01)
+@patch("create_kiknet_knet_dataset.min_waveforms_ok_ratio", 0)
 def test_knet():
     my_dest_data_dir = join(dest_data_dir, 'knet')
     os.mkdir(my_dest_data_dir)

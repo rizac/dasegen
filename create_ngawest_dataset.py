@@ -69,9 +69,13 @@ id_columns = {
 # csv arguments for source metadata (e/g. 'header'= None)
 source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
 
-# ratio of waveforms successfully processed, in [0,1]. The program will stop otherwise
-# (this makes spotting errors and checking log faster):
-waveforms_ok_ratio = 1/5
+# The program will stop if the successfully processed waveform ratio falls below this
+# value that must be in [0, 1] (this makes spotting errors and checking log faster):
+min_waveforms_ok_ratio = 1/5
+
+# max discrepancy between PGA from catalog and computed PGA. A waveform is saved if:
+# | PGA - PGA_computed | <= pga_retol * | PGA |
+pga_retol = 1/4
 
 
 def accept_file(file_path) -> bool:
@@ -194,16 +198,6 @@ def process_waveforms(
     """
     # pga check
     pga = metadata["PGA (g)"] * 9.80665  # convert m/sec square
-    rtol = 0.5
-    if h1 is not None and h2 is not None:
-        assert np.isclose(pga, np.sqrt(np.max(np.abs(h1[1])) * np.max(np.abs(h2[1]))),
-                          rtol=rtol), f"PGA geom mean not within {rtol}"
-    elif h1 is not None and h2 is None:
-        assert np.isclose(pga, np.max(np.abs(h1[1])),
-                          rtol=2*rtol), f"PGA h1 not within {rtol}"
-    elif h1 is None and h2 is not None:
-        assert np.isclose(pga, np.max(np.abs(h2[1])),
-                          rtol=2*rtol), f"PGA h2 not within {rtol}"
 
     # compute arrival time (correct)
     year = metadata['YEAR']
@@ -306,8 +300,8 @@ def process_waveforms(
 
     # correct missing values:
 
-    if metadata["filter_type"] in (-999, '-999'):
-        metadata["filter_type"] = None
+    if new_metadata["filter_type"] in (-999, '-999'):
+        new_metadata["filter_type"] = None
 
     if new_metadata['magnitude_type'] == 'U':
         new_metadata['magnitude_type'] = None
@@ -467,19 +461,25 @@ def main():
                         clean_record[f] = cast_dtype(val, dtype)
                     except AssertionError:
                         raise AssertionError(f'Invalid value for "{f}": {str(val)}')
-                new_metadata.append(clean_record)
 
-                # save waveforms
-                step_name = "save_waveforms"  # noqa
-                file_path = join(dest_waveforms_path, get_file_path(clean_record))
-                save_waveforms(file_path, h1, h2, v)
+                # final checks:
+                check_final_metadata(clean_record, h1, h2)
 
+                # finalize clean_record:
                 avail_comps, sampling_rate = \
                     finalize_metadata(clean_record, h1, h2, v)
                 clean_record['available_components'] = avail_comps
                 clean_record['sampling_rate'] = sampling_rate if \
                     pd.notna(sampling_rate) else \
                     int(metadata_fields['sampling_rate']['default'])
+
+                # append metadata:
+                new_metadata.append(clean_record)
+
+                # save waveforms
+                step_name = "save_waveforms"  # noqa
+                file_path = join(dest_waveforms_path, get_file_path(clean_record))
+                save_waveforms(file_path, h1, h2, v)
 
             except Exception as exc:
                 logging.error(
@@ -489,9 +489,10 @@ def main():
                 errs += 1
                 continue
 
-            if rec_num / max_rows > (1 - waveforms_ok_ratio):
+            if rec_num / max_rows > (1 - min_waveforms_ok_ratio):
                 # we processed enough data (1 - waveforms_ok_ratio)
-                if errs / max_rows > waveforms_ok_ratio:
+                ok_ratio = (1 - errs / max_rows)
+                if ok_ratio < min_waveforms_ok_ratio:
                     # the processed data error ratio is too high:
                     msg = f'Too many errors ({errs} of {max_rows} records)'
                     print(msg, file=sys.stderr)
@@ -675,6 +676,38 @@ def get_file_path(metadata: dict):
         str(metadata['event_id']),
         str(metadata['station_id']) + ".h5"
     )
+
+
+def check_final_metadata(
+        metadata: dict,
+        h1: Optional[tuple[float, ndarray]],
+        h2: Optional[tuple[float, ndarray]]
+):
+
+    pga = metadata['PGA']
+    pga_c = None
+    if h1 is not None and h2 is not None:
+        pga_c = np.sqrt(np.max(np.abs(h1[1])) * np.max(np.abs(h2[1])))
+    elif h1 is not None and h2 is None:
+        pga_c = np.max(np.abs(h1[1]))
+    elif h1 is None and h2 is not None:
+        pga_c = np.max(np.abs(h2[1]))
+    if pga_c is not None:
+        rtol = pga_retol
+        assert np.isclose(pga_c, pga, rtol=rtol, atol=0), \
+            f"|PGA - PGA_computed| > {rtol} * | PGA |"
+
+    o_time = 'origin_time' if pd.notna(metadata['origin_time']) else 'origin_date'
+    assert pd.notna(metadata[o_time]), f"{o_time} is NA"
+
+    for t_before, t_after in [
+        (o_time, 'p_wave_arrival_time'),
+        ('p_wave_arrival_time', 's_wave_arrival_time')
+    ]:
+        val_before = metadata.get(t_before)
+        val_after = metadata.get(t_after)
+        if pd.notna(val_before) and pd.notna(val_after):
+            assert val_after > val_before, f"{t_after} must happen after {t_before}"
 
 
 def finalize_metadata(
