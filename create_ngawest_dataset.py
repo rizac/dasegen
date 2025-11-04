@@ -208,17 +208,16 @@ def process_waveforms(
     # compute arrival time (correct)
     year = metadata['YEAR']
     month_day = str(metadata['MODY'])
-    if len(month_day) == 3:
-        month_day = '0' + month_day
+    if month_day in (-999, '-999'):
+        raise AssertionError('Invalid month_day')
+    month_day = month_day.zfill(4)  # pad with zeroes
     month, day = int(month_day[:2]), int(month_day[2:])
 
     hour_min = str(metadata['HRMN'])
     if hour_min in (-999, '-999'):
         evt_time = pd.NaT
     else:
-        if len(hour_min) == 3:
-            hour_min = '0' + hour_min
-        assert len(month_day) == len(hour_min) == 4, 'month_day or hour_min invalid'
+        hour_min = hour_min.zfill(4)  # pad with zeroes
         hour, min = int(hour_min[:2]), int(hour_min[2:])
         evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
     # use datetimes also for event_date (for simplicity when casting later):
@@ -306,6 +305,10 @@ def process_waveforms(
     }
 
     # correct missing values:
+
+    if metadata["filter_type"] in (-999, '-999'):
+        metadata["filter_type"] = None
+
     if new_metadata['magnitude_type'] == 'U':
         new_metadata['magnitude_type'] = None
 
@@ -427,7 +430,7 @@ def main():
                 h1_path, h2_path, v_path = find_waveforms_path(record, files)
 
                 if (h1_path is None) and (h2_path is None) and (v_path is None):
-                    raise Exception('No path for waveform components found')
+                    raise Exception('No waveform file')
 
                 for comp_name in components:
                     step_name = f"read_waveform ({comp_name})"
@@ -436,13 +439,13 @@ def main():
                         components[comp_name] = read_waveform(comp_path, record)
 
                 if all(_ is None for _ in components.values()):
-                    raise Exception('No waveform component read')
-                elif any(_ is None for _ in components.values()):
-                    logging.warning(
-                        f"[WARN] {metadata_row}: only "
-                        f"{sum(_ is not None for _ in components.values())} "
-                        f"of 3 components created and saved"
-                    )
+                    raise Exception('No waveform read')
+                # elif any(_ is None for _ in components.values()):
+                #     logging.warning(
+                #         f"[WARN] {metadata_row}: only "
+                #         f"{sum(_ is not None for _ in components.values())} "
+                #         f"of 3 components created and saved"
+                #     )
 
                 # process waveforms
                 step_name = "save_waveforms"  # noqa
@@ -463,7 +466,7 @@ def main():
                     try:
                         clean_record[f] = cast_dtype(val, dtype)
                     except AssertionError:
-                        raise AssertionError(f'Field {f}: invalid value {str(val)}')
+                        raise AssertionError(f'Invalid value for "{f}": {str(val)}')
                 new_metadata.append(clean_record)
 
                 # save waveforms
