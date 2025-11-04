@@ -522,9 +522,9 @@ def scan_dir(source_root_dir) -> tuple[dict[str, Union[dict, str]], int]:
             tree[entry.name], _ = scan_dir(entry.path)
             num_files += _
         else:
-            file = os.path.abspath(entry.path)
+            file = abspath(entry.path)
             if accept_file(file):
-                tree[entry.name] = os.path.abspath(entry.path)
+                tree[entry.name] = file
                 num_files += 1
     return tree, num_files
 
