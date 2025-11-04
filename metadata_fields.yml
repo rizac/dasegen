@@ -30,10 +30,10 @@ hypocentral_distance:
   help: hypocentral distance (aka rhypo, in km)
 fault_normal_distance:
   dtype: float
-  help: Horizontal distance (in km) from the top of the rupture measured perpendicular to strike (aka Rx, in km)
+  help: horizontal distance (aka Rx, in km) from the top of the rupture measured perpendicular to strike
 fault_parallel_distance:
   dtype: float
-  help: Horizontal distance (in km) from the top of the rupture measured parallel to strike (aka ry0, in km)
+  help: horizontal distance (aka ry0, in km) from the top of the rupture measured parallel to strike
 
 #r_volc:
 #  dtype: float
@@ -44,77 +44,74 @@ fault_parallel_distance:
 event_id:
   dtype: str
   help: >-
-    The ID of the seismic event, used to determine when two records
-    originate from the same earthquake. IDs do not have a specific data type but
-    are usually either numeric integers (recommended) or string of text (discouraged,
-    especially for flatfiles with many distinct event IDs)
+    the ID of the seismic event, used to determine when two records
+    originate from the same earthquake
 origin_time:
   dtype: datetime
-  help: the event origin time. This field could be missing (NA) for old events (see origin_date)
+  help: >- 
+    the event origin time. This field could be missing (NA) for old events 
+    (see origin_date)
 origin_date:
   dtype: datetime
   help: >-
     Event origin date. Values of this field must always be provided and have hours, 
     minutes, and seconds arbitrarily set to 00:00. This field is useful when origin_time 
-    is not available to denote that the most precise available origin time is at daily resolution
+    is not available (e.g., old events) to denote that the most precise available origin 
+    time is at daily resolution
 event_latitude:
   dtype: float
-  help: Event latitude (hypocenter latitude, in deg) in [-90, 90]
+  help: event latitude (hypocenter latitude, in deg) in [-90, 90]
 event_longitude:
   dtype: float
-  help: Event longitude (hypocenter longitude, in deg) in [-180, 180]
+  help: event longitude (hypocenter longitude, in deg) in [-180, 180]
 magnitude:
   dtype: float
   help: event magnitude
 magnitude_type:
   dtype: ["ML", "mb", "Ms", 'Mw', "MJ", "MD", "Md", "MV", "Mv"]
-  help: magnitude type. For MJ, MD, Md, MV, Mv, see https://www.data.jma.go.jp/eqev/data/bulletin/catalog/notes_e.html
+  help: >- 
+    magnitude type. For MJ, MD, Md, MV, Mv, 
+    see https://www.data.jma.go.jp/eqev/data/bulletin/catalog/notes_e.html
 event_depth:
   dtype: float
   help: event depth (hypocentral depth, in km)
 depth_to_top_of_fault_rupture:
   dtype: float
-  help: Top of Rupture Depth (aka ztor, in km). Must be >=0
+  help: top of Rupture Depth (aka ztor, in km). Must be >=0
 fault_rupture_width:
   dtype: float
-  ">=": 0
-  help: >-
-    Down-dip width of the rupture (km), >=0. Hint: missing data might be derived from 
-    the record magnitude using a Magnitude-Scaling Relationship defined for PEER PSHA 
-    test cases, and assuming an aspect ratio of 1
+  help: down-dip width of the rupture (in km). Must be >=0
 dip:
   dtype: float
   help: >-
-    the angle of the fault relative to the horizontal (deg) in [0, 90]. 
-    If the actual fault plane could not be determined in the source metadata, the same
-    value for the conjugate plane is stored in dip2. Otherwise, dip2 is NaN or None
+    the angle of the fault relative to the horizontal (deg) in [0, 90]. If dip2 is 
+    provided (not missing or N/A), then the actual fault plane is unknown, and dip and 
+    dip2 provide the values for the two conjugate planes
 dip2:
   dtype: float
-  help: The dip for one of the possible fault planes, or N/A (see dip help for details)
+  help: the dip for one of the possible fault planes, or N/A (see dip help for details)
 rake:
   dtype: float
   help: >-
     the direction the hanging wall moves, relative to the fault strike (deg) in 
-    [-180, 180]. If the actual fault plane could not be available in the source metadata, 
-    the same value for the conjugate plane is stored in rake2. Otherwise, rake2 is NaN or 
-    None
+    [-180, 180]. If rake2 is provided (not missing or N/A), then the actual fault plane 
+    is unknown, and rake and rake2 provide the values for the two conjugate planes
 rake2:
   dtype: float
-  help: The dip for one of the possible fault planes, or N/A (see dip help for details)
+  help: The rake for one of the possible fault planes, or N/A (see rake for details)
 strike:
   dtype: float
   help: >- 
     Strike angle in [0, 360] of the fault plane used to approximate the causative fault 
-    surface. If the actual fault plane could not be available in the source metadata, the
-    same value for the conjugate plane is stored in strike2. Otherwise, strike2 is NaN or 
-    None
+    surface. If strike2 is provided (not missing or N/A), then the actual fault plane 
+    is unknown, and strike and strike2 provide the values for the two conjugate planes
 strike2:
   dtype: float
-  help: The dip for one of the possible fault planes, or N/A (see dip help for details)
+  help: The strike for one of the possible fault planes, or N/A (see strike for details)
 fault_type:
   dtype: ['Strike-Slip', 'Normal', 'Reverse' , 'Reverse-Oblique', 'Normal-Oblique']
   help: >-
-    Mechanism based on Rake Angle (aka Style of Faulting). Rake angles defining the
+    mechanism based on Rake Angle (aka Style of Faulting). Rake angles defining the
     different categories might vary according to the source datasets 
 
   # In NGa west for instance: 0: Strike-slip (rake angles:
@@ -126,25 +123,17 @@ fault_type:
 
 station_id:
   dtype: str
-  help: >-
-    The unique ID of the seismic station. If missing, an id is inferred from
-    the station spatial coordinates (latitude, longitude), which must all be present.
-    In general, you can infer the id from the tuple (network_code, station_code)
-    or create your own, as long as it holds: same id <=> same station. IDs should
-    be preferably of type integer for performance reasons
+  help: the unique ID of the seismic station
 z1:
   dtype: float
   help: >-
     depth of the layer where seismic waves start to propagate with a speed above 1.0
-    km/sec, in meters. Missing data (e.g., empty cell, NaN, column not provided) will be
-    derived from the vs30 (if present) using the Chiou & Youngs (2014) California
-    model
+    km/sec, in meters
 z2pt5:
   dtype: float
   help: >-
     depth of the layer where seismic waves start to propagate with a speed above
-    2.5 km/sec, in km. Missing data (e.g., empty cell, NaN, column not provided) will
-    be derived from the vs30 (if present) using the Campbell & Bozorgnia (2014) model
+    2.5 km/sec, in km
 vs30:
   dtype: float
   help: Average shear wave velocity in the top 30 m, in m/s (>=0)
@@ -221,56 +210,58 @@ filter_type:
     O: Ormsby, A: Acausal Butterworth, C Causal butterworth
 npass:
   dtype: int
-  help: Number of passes of filter. 0 when not applicable / not available
+  help: number of passes of filter. 0 when not applicable / not available
   default: 0
 nroll:
   dtype: float
-  help: The `nroll` parameter of the Butterworth filter. 0 when not applicable / not available
+  help: the `nroll` parameter of the Butterworth filter. 0 when missing (NA)
 lower_cutoff_frequency_h1:
   dtype: float
-  help: Corner frequency of the high-pass filter of component H1, in Hz
+  help: corner frequency of the high-pass filter of component H1, in Hz
 lower_cutoff_frequency_h2:
   dtype: float
-  help: Corner frequency of the high-pass filter of component H2, in Hz
+  help: corner frequency of the high-pass filter of component H2, in Hz
 upper_cutoff_frequency_h1:
   dtype: float
-  help: Corner frequency of the low-pass filter of component H1, in Hz
+  help: corner frequency of the low-pass filter of component H1, in Hz
 upper_cutoff_frequency_h2:
   dtype: float
-  help: Corner frequency of the low-pass filter of component H2, in Hz
+  help: corner frequency of the low-pass filter of component H2, in Hz
 lowest_usable_frequency_h1:
   dtype: float
-  help: Lowest usable frequency of component H1, in Hz usually as ratio of hp_h1
+  help: lowest usable frequency of component H1, in Hz usually as ratio of hp_h1
 lowest_usable_frequency_h2:
   dtype: float
-  help: Lowest usable frequency of component H2, in Hz usually as ratio of hp_h1
+  help: lowest usable frequency of component H2, in Hz usually as ratio of hp_h2
 available_components:
   dtype: ['H', 'HH', 'HV', 'V', 'HHV']
   help: >-
-    The available time histories for this recording: H: only one (horizontal 
+    the available time histories for this recording: H: only one (horizontal 
     component), HH: the two horizontal components, HV: one horizontal and one vertical,
     V: only vertical, HHV: all three components (2 horizontal, and the vertical).
 sampling_rate:
   dtype: int
   help: >- 
-    The sampling rate. If non-zero, it is the sampling rate of all available
-    components (h1, h2, v). If zero, it denotes some error (sampling rate not equal among 
+    the sampling rate. If non-zero, it is the sampling rate of all available
+    components (h1, h2, v). Zero denotes some error (sampling rate not equal among 
     components, or non-integer): in this case, each waveform has to be opened and its
     `dt` will return the inverse of the sampling rate
   default: 0
 start_time:
   dtype: datetime
-  help: start time of the time histories (h1, h2, v). Assumes all components start time is the same
+  help: >-
+    start time of the time histories (h1, h2, v). If provided, all components 
+    start time is the same. If missing (NA), this condition is not guaranteed
 p_wave_arrival_time:
   dtype: float
-  help: Theoretical P-wave arrival time
+  help: theoretical P-wave arrival time
 s_wave_arrival_time:
   dtype: float
-  help: Theoretical S-wave arrival time
+  help: theoretical S-wave arrival time
 PGA:
   dtype: float
   help: >-
-    PGA. If available it is the PGA computed at RotD50. If the two horizontal 
-    components are available, it is their geometric mean. This datum is retrieved from
-    the source catalog, not computed directly from the data (consistency between the two
-    entities is performed, when possible)
+    peak ground acceleration, in m/s^2. If available it is the PGA computed at RotD50. 
+    Otherwise, if the two horizontal components are available, it is their geometric 
+    mean. Values are retrieved from the source catalog, not computed directly from the 
+    data
