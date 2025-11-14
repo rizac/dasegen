@@ -31,6 +31,7 @@ A new metadata file metadata.csv will be also created in the same directory
 """
 from __future__ import annotations
 
+import shutil
 import zipfile
 from typing import Optional, Any, Union
 import logging
@@ -438,18 +439,22 @@ def main():
 
     dest_metadata_path = join(dest_root_path, "metadata.hdf")
     dest_waveforms_path = join(dest_root_path, "waveforms")
+    print(f"Destination waveforms path: {dest_waveforms_path}")
+    print(f"Destination metadata path: {dest_metadata_path}")
 
     existing = isfile(dest_metadata_path) or isdir(dest_waveforms_path)
+
     if existing:
         res = input(
-            f'Metadata file ({basename(dest_metadata_path)}) or waveforms dir '
-            f'({basename(dest_waveforms_path)}) already exist in {dest_root_path}.\n'
-            f'If you type "y", Metadata file will be deleted and recreated, and '
-            f'waveforms files potentially overwritten.\n'
-            f'Proceed (y=yes, any key=no)?'
+            f'Some destination data already exists. Type:\n '
+            f'y: delete and re-create all data\n'
+            f'm: delete and re-create metadata, save only new waveform files\n'
+            f'Any key: quit'
         )
-        if res != 'y':
+        if res not in ('y', 'm'):
             sys.exit(1)
+        if res == 'y' and isdir(dest_waveforms_path):
+            shutil.rmtree(dest_waveforms_path)
 
     if isfile(dest_metadata_path):
         os.unlink(dest_metadata_path)
@@ -462,8 +467,8 @@ def main():
 
     logging.info(f'Working directory: {abspath(os.getcwd())}')
     logging.info(f'Run command      : {" ".join([sys.executable] + sys.argv)}')
-    print(f"Source metadata path: {source_metadata_path}")
     print(f"Source waveforms path: {source_waveforms_path}")
+    print(f"Source metadata path: {source_metadata_path}")
 
     # Reading metadata fields dtypes and info:
     try:
@@ -475,17 +480,17 @@ def main():
         print(exc, file=sys.stderr)
         sys.exit(1)
 
-    print(f'Scanning {source_waveforms_path}')
+    print(f'Scanning source waveforms directory')
     files = scan_dir(source_waveforms_path)
 
-    print(f'Found {len(files)} file(s) as time history candidates')
+    print(f'Source waveforms: found {len(files):,} file(s)')
     pbar = tqdm(
         total=len(files),
         bar_format="{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
                    "(estimated remaining time {remaining}s)"
     )
 
-    print(f'Reading {source_metadata_path}')
+    print(f'Reading source metadata file')
     csv_args = dict(source_metadata_csv_args)
     # csv_args.setdefault('chunksize', 10000)
     csv_args.setdefault('usecols', source_metadata_fields.keys())
@@ -499,8 +504,10 @@ def main():
     for lbl in ['event_id', 'station_id']:
         metadata[lbl] = metadata[lbl].astype('category')
         metadata_fields[lbl]['dtype'] = metadata[lbl].dtype
+    print(f'Source metadata: {len(metadata):,} record(s), '
+          f'{len(metadata.columns):,} field(s) per record')
 
-    print(f'Processing waveforms in {source_waveforms_path}')
+    print(f'Creating harmonized dataset from source')
     records = []
     item_num = 0
     while len(files):
@@ -580,7 +587,8 @@ def main():
             # save waveforms
             step_name = "save_waveforms"  # noqa
             file_path = join(dest_waveforms_path, get_file_path(clean_record))
-            save_waveforms(file_path, h1, h2, v)
+            if not isfile(file_path):
+                save_waveforms(file_path, h1, h2, v)
 
         except Exception as exc:
             logging.error(
