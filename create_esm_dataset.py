@@ -411,7 +411,7 @@ def main():
     print(f'Processing records in {source_metadata_path}')
     rec_num = 0
     csv_args = dict(source_metadata_csv_args)
-    csv_args.setdefault('chunksize', 10000)
+    # csv_args.setdefault('chunksize', 10000)
     errs = 0
     for metadata_chunk in pd.read_csv(source_metadata_path, **csv_args):
         new_metadata = []
