@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import shutil
 import zipfile
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, Sequence
 import logging
 import urllib.request
 import os
@@ -56,6 +56,14 @@ import glob
 from io import BytesIO
 import math
 from tqdm import tqdm
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class Waveform:
+    """Simple class handling a Waveform (Time History single component)"""
+    dt: float
+    data: Sequence[float]
 
 
 ########################################################################
@@ -241,8 +249,7 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
 #     )
 
 
-def read_waveform(full_abs_path: str, content: BytesIO, metadata: pd.Series) -> \
-        tuple[float, ndarray]:
+def read_waveform(full_abs_path: str, content: BytesIO, metadata: pd.Series) -> Waveform:
     """Read a waveform from a file path. Modify according to the format you stored
     your time histories"""
     scale_nom, scale_denom, dt = None, None, None
@@ -259,22 +266,22 @@ def read_waveform(full_abs_path: str, content: BytesIO, metadata: pd.Series) -> 
                 raise ValueError('dt /scale nom / scale denom not found')
             break
     rest = content.read()
-    data = np.fromstring(rest, sep=" ", dtype=np.float32)
+    data: np.ndarray = np.fromstring(rest, sep=" ", dtype=np.float32)
     # data = np.loadtxt(fp, dtype=np.float32)
     data *= scale_nom / scale_denom / 100.  # the 100. is to convert to m/s**2
-    return dt, data
+    return Waveform(dt, data)
 
 
 def post_process(
         metadata: pd.Series,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]],
-        v: Optional[tuple[float, ndarray]]
+        h1: Optional[Waveform],
+        h2: Optional[Waveform],
+        v: Optional[Waveform]
 ) -> tuple[
-    dict,
-    Optional[tuple[float, ndarray]],
-    Optional[tuple[float, ndarray]],
-    Optional[tuple[float, ndarray]]
+    pd.Series,
+    Optional[Waveform],
+    Optional[Waveform],
+    Optional[Waveform]
 ]:
     """Process the waveform(s), returning the same argument modified according to your
     custom processing routine: a new metadata dict, and three obspy Traces denoting the
@@ -301,6 +308,7 @@ def post_process(
     :param h2: second horizontal component, same format as h1
     :param v: vertical component, same format as h1
     """
+    orig_meta, metadata = metadata, metadata.copy()
     metadata['origin_time'] = datetime.fromisoformat(metadata["origin_time"])
     dt_format = "%Y%m%d%H%M%S"
     metadata["start_time"] = \
@@ -515,7 +523,9 @@ def main():
         file = files.pop()
 
         step_name = ""
-        components = {'h1': None, 'h2': None, 'v': None}
+        h1: Optional[Waveform] = None
+        h2: Optional[Waveform] = None
+        v: Optional[Waveform] = None
 
         try:
             step_name = "find_related"
@@ -533,25 +543,24 @@ def main():
                     num_files += 1
                     files.remove(_)
 
-            for comp_name in components:
-                step_name = f"read_waveform ({comp_name})"
-                comp_path = {'h1': h1_path, 'h2': h2_path, 'v': v_path}[comp_name]
-                if comp_path:
-                    with open_file(comp_path) as file_p:
-                        components[comp_name] = read_waveform(comp_path, file_p, record)
+            comps = {}
+            for cmp_name, cmp_path in zip(('h1', 'h2', 'v'), (h1_path, h2_path, v_path)):
+                step_name = f"read_waveform ({cmp_name})"
+                if cmp_path:
+                    with open_file(cmp_path) as file_p:
+                        comps[cmp_name] = read_waveform(cmp_path, file_p, record)
+            h1, h2, h3 = comps.get('h1'), comps.get('h2'), comps.get('v')
 
-            if all(_ is None for _ in components.values()):
+            if all(_ is None for _ in comps.values()):
                 raise Exception('No waveform read')
+            if len(set(_.dt for _ in comps.values())) != 1:
+                raise Exception('Waveform components have mismatching dt')
 
             # process waveforms
             step_name = "save_waveforms"  # noqa
             # old_record = dict(record)  # for testing purposes
-            new_record, h1, h2, v = post_process(
-                record,
-                components.get('h1'),
-                components.get('h2'),
-                components.get('v')
-            )
+            new_record, h1, h2, v = post_process(record, h1, h2, v)
+
             # check record data types:
             item_num += 1
             clean_record = {'id': item_num}
@@ -582,7 +591,7 @@ def main():
             records.append(clean_record)
             if len(records) > 1000:
                 save_metadata(dest_metadata_path, pd.DataFrame(records), metadata_fields)
-                new_metadata = []
+                records = []
 
             # save waveforms
             step_name = "save_waveforms"  # noqa
@@ -723,20 +732,6 @@ def get_metadata_fields(dest_path):
     return metadata_fields
 
 
-def read_wafevorms(file_path):
-    """Reads the file path previously saved. NOT USED, HERE ONLY FOR REF"""
-    with h5py.File(file_path, "r") as f:
-        h1_data = f["h1"][:] if "h1" in f else np.array([])
-        h1_dt = f["h1"].attrs["dt"] if "h1" in f else None
-
-        h2_data = f["h2"][:] if "h2" in f else np.array([])
-        h2_dt = f["h2"].attrs["dt"] if "h2" in f else None
-
-        v_data = f["v"][:] if "v" in f else np.array([])
-        v_dt = f["v"].attrs["dt"] if "v" in f else None
-    return (h1_dt, h1_data), (h2_dt, h2_data), (v_dt, v_data)
-
-
 def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
     if dtype == 'int':
         assert isinstance(val, int) or (isinstance(val, float) and int(val) == val)
@@ -759,33 +754,6 @@ def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
     return val
 
 
-def save_waveforms(
-        file_path,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]],
-        v: Optional[tuple[float, ndarray]]
-):
-    if not isdir(dirname(file_path)):
-        os.makedirs(dirname(file_path))
-
-    with h5py.File(file_path, "w") as f:
-        # Save existing components
-        if h1 is not None:
-            f.create_dataset("h1", data=h1[1])
-
-        if h2 is not None:
-            f.create_dataset("h2", data=h2[1])
-
-        if v is not None:
-            f.create_dataset("v", data=v[1])
-
-        f.attrs["dt"] = v[0]
-
-    # Add read permission for group (stat.S_IRGRP) and others (stat.S_IROTH).
-    if isfile(file_path):
-        os.chmod(file_path, os.stat(file_path).st_mode | stat.S_IRGRP | stat.S_IROTH)
-
-
 def get_file_path(metadata: dict):
     """Return the file (relative) path from the given metadata
     (record metadata already cleaned)"""
@@ -795,20 +763,16 @@ def get_file_path(metadata: dict):
     )
 
 
-def check_final_metadata(
-        metadata: dict,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]]
-):
+def check_final_metadata(metadata: dict, h1: Optional[Waveform], h2: Optional[Waveform]):
 
     pga = metadata['PGA']
     pga_c = None
     if h1 is not None and h2 is not None:
-        pga_c = np.sqrt(np.max(np.abs(h1[1])) * np.max(np.abs(h2[1])))
+        pga_c = np.sqrt(np.max(np.abs(h1.data)) * np.max(np.abs(h2.data)))
     elif h1 is not None and h2 is None:
-        pga_c = np.max(np.abs(h1[1]))
+        pga_c = np.max(np.abs(h1.data))
     elif h1 is None and h2 is not None:
-        pga_c = np.max(np.abs(h2[1]))
+        pga_c = np.max(np.abs(h2.data))
     if pga_c is not None:
         rtol = pga_retol
         assert np.isclose(pga_c, pga, rtol=rtol, atol=0), \
@@ -828,32 +792,22 @@ def check_final_metadata(
 
 
 def extract_metadata_from_waveforms(
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]],
-        v: Optional[tuple[float, ndarray]]
+        h1: Optional[Waveform],
+        h2: Optional[Waveform],
+        v: Optional[Waveform]
 ) -> tuple[Optional[str], Optional[int]]:
-    avail_components = (h1 is not None, h2 is not None, v is not None)
     dt = None
-    avail_comps = None
-    if avail_components == (False, False, True):
-        avail_comps = 'V'
-        dt = v[0]
-    elif avail_components == (True, False, False):
-        avail_comps = 'H'
-        dt = h1[0]
-    elif avail_components == (False, True, False):
-        avail_comps = 'H'
-        dt = h2[0]
-    elif avail_components == (True, True, False):
-        avail_comps = 'HH'
-        dt = h1[0] if h1[0] == h2[0] else None
-    elif avail_components == (True, True, True):
-        avail_comps = 'HHV'
-        dt = h1[0] if h1[0] == h2[0] == v[0] else None
+    avail_comps = ''
+    for comp, avail_comp_str in zip((h1, h2, v), ('H', 'H', 'V')):
+        if comp is None:
+            continue
+        if avail_comps == '':  # first non null component
+            dt = comp.dt
+        elif comp.dt != dt:
+            dt = None
+        avail_comps += avail_comp_str
 
-    sampling_rate = None
-    if dt is not None:
-        sampling_rate = int(1./dt) if int(1./dt) == float(1./dt) else None
+    sampling_rate = int(1./dt) if dt is not None and int(1./dt) == 1./dt else None
     return avail_comps, sampling_rate
 
 
@@ -938,6 +892,43 @@ def cast_dtypes(
                 )
         return values.astype(dtype)
     raise AssertionError(f'Unrecognized dtype {dtype}')
+
+
+def save_waveforms(
+        file_path, h1: Optional[Waveform], h2: Optional[Waveform], v: Optional[Waveform]
+):
+    if not isdir(dirname(file_path)):
+        os.makedirs(dirname(file_path))
+
+    dts = {x.dt for x in (h1, h2, v) if x is not None}
+    assert len(dts), "No waveform to save"  # safety check
+    data_has_samples = {len(x.data) for x in (h1, h2, v) if x is not None}
+    assert all(data_has_samples), "Cannot save empty waveform(s)"
+
+    assert len(dts) == 1, "Non-unique dt in waveforms"
+    dt = dts.pop() if dts else None
+
+    empty = np.array([])
+    with h5py.File(file_path, "w") as f:
+        # Save existing components
+        f.create_dataset("h1", data=empty if h1 is None else h1.data)
+        f.create_dataset("h2", data=empty if h2 is None else h2.data)
+        f.create_dataset("v", data=empty if v is None else v.data)
+        f.attrs["dt"] = dt
+
+    # Add read permission for group (stat.S_IRGRP) and others (stat.S_IROTH).
+    if isfile(file_path):
+        os.chmod(file_path, os.stat(file_path).st_mode | stat.S_IRGRP | stat.S_IROTH)
+
+
+def read_wafevorms(file_path) -> (float, np.ndarray, np.ndarray, np.ndarray):
+    """Reads the file path previously saved. NOT USED, HERE ONLY FOR REF"""
+    with h5py.File(file_path, "r") as f:
+        dt = f.attrs["dt"]
+        h1 = f['h1'][:]
+        h2 = f['h2'][:]
+        v = f['v'][:]
+    return dt, h1, h2, v
 
 
 if __name__ == "__main__":
