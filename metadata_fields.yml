@@ -161,7 +161,9 @@ station_latitude:
 station_longitude:
   dtype: float
   help: station longitude (deg), in [-180, 180]
-
+station_height:
+  dtype: float
+  help: Station height (negative values allowed and might indicate e.g., boreholes)
 #xvf:
 #  dtype: float
 #  help: distance to the volcanic front (km)
@@ -247,13 +249,15 @@ available_components:
     the available time histories for this recording: H: only one (horizontal 
     component), HH: the two horizontal components, HV: one horizontal and one vertical,
     V: only vertical, HHV: all three components (2 horizontal, and the vertical).
+    This field is usually code-generated and does not need to be provided in source 
+    datasets
 sampling_rate:
   dtype: int
   help: >- 
     the sampling rate. If non-zero, it is the sampling rate of all available
     components (h1, h2, v). Zero denotes some error (sampling rate not equal among 
-    components, or non-integer): in this case, each waveform has to be opened and its
-    `dt` will return the inverse of the sampling rate
+    components, or non-integer): in this case, no waveform will be saved. This field is 
+    usually code-generated and does not need to be provided in source datasets
   default: 0
 start_time:
   dtype: datetime

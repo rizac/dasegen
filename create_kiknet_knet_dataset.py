@@ -122,6 +122,7 @@ source_metadata_fields = {
     "vs30measured": "vs30measured",
     'StationLat.': "station_latitude",
     'StationLong.': "station_longitude",
+    'StationHeight(m)': "station_height",
     "z1": "z1",
     "z2pt5": "z2pt5",
 
@@ -149,12 +150,18 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
         row of this object as pandas Series, any other object will raise
     """
     root, ext = splitext(file_path)
-    if ext == '.EW':
+    if ext == '.EW':  # knet
         paths = file_path, root + ".NS", root + '.UD'
     elif ext == '.NS':
         paths = root + '.EW', file_path, root + '.UD'
     elif ext == '.UD':
         paths = root + '.EW', root + '.NS', file_path
+    elif ext == '.EW1':
+        paths = file_path, root + ".NS1", root + '.UD1'
+    elif ext == '.NS1':
+        paths = root + '.EW1', file_path, root + '.UD1'
+    elif ext == '.UD1':
+        paths = root + '.EW1', root + '.NS1', file_path
     elif ext == '.EW2':
         paths = file_path, root + ".NS2", root + '.UD2'
     elif ext == '.NS2':
@@ -176,9 +183,11 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
     # so build event id candidates:
     for e in [ev_id, ev_id[2:], ev_id[:-2], ev_id[2:-2]]:
         if root.endswith(e + 'p'):
-            sta_id = basename(root)[:len(basename(root))-len(e)-1]
+            sta_id = basename(root)[:6]
             try:
-                record = metadata.loc[(ev_id, sta_id)]
+                record = metadata.loc[(ev_id, sta_id)].copy()
+                sta_suffix = f'_{ext[2:3]}' if ext[2:3] else ''
+                record["station_id"] += f'{sta_id}{sta_suffix}'
             except KeyError:
                 continue
             break
