@@ -31,7 +31,9 @@ A new metadata file metadata.csv will be also created in the same directory
 """
 from __future__ import annotations
 
-from typing import Optional, Any, Union
+import shutil
+import zipfile
+from typing import Optional, Any, Union, Sequence
 import logging
 import urllib.request
 import os
@@ -54,6 +56,14 @@ import glob
 from io import BytesIO
 import math
 from tqdm import tqdm
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class Waveform:
+    """Simple class handling a Waveform (Time History single component)"""
+    dt: float
+    data: Sequence[float]
 
 
 ########################################################################
@@ -66,9 +76,6 @@ id_columns = {
     'station_id': 'station_id'
 }
 
-# csv arguments for source metadata (e/g. 'header'= None)
-source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
-
 # The program will stop if the successfully processed waveform ratio falls below this
 # value that must be in [0, 1] (this makes spotting errors and checking log faster):
 min_waveforms_ok_ratio = 1/5
@@ -77,30 +84,74 @@ min_waveforms_ok_ratio = 1/5
 # | PGA - PGA_computed | <= pga_retol * | PGA |
 pga_retol = 1/4
 
+# csv arguments for source metadata (e/g. 'header'= None)
+source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
+
+# Mapping from source metadata columns to their new names. Map to None to skip renaming
+# and just load the column data
+source_metadata_fields = {
+    'EQ_Code': 'event_id',
+    "StationCode": 'station_id',
+
+    'Origin_Meta': 'origin_time',
+    'new_record_start_UTC': 'start_time',
+    # 'RecordTime': None,
+    'tP_JMA': 'p_wave_arrival_time',
+    'tS_JMA': 's_wave_arrival_time',
+    'PGA_EW': None,
+    'PGA_NS': None,
+    'PGA_rotd50': 'PGA',
+    # 'azimuth': metadata.get(54),
+    'Repi': 'epicentral_distance',
+    'Rhypo': 'hypocentral_distance',
+    'RJB_0': None,
+    'RJB_1': None,
+    'Rrup_0': None,
+    'Rrup_1': None,
+    # 'fault_normal_distance': None,
+    "evLat._Meta": 'event_latitude',
+    "evLong._Meta": 'event_longitude',
+    "Depth. (km)_Meta": 'event_depth',
+    "Mag._Meta": 'magnitude',
+    "JMA_Magtype": 'magnitude_type',
+    # 'depth_to_top_of_fault_rupture': None
+    # 'fault_rupture_width': None,
+    "fnet_Strike_0": 'strike',
+    "fnet_Dip_0": 'dip',
+    "fnet_Rake_0": 'rake',
+    "fnet_Strike_1": 'strike2',
+    "fnet_Dip_1": 'dip2',
+    "fnet_Rake_1": 'rake2',
+    "Focal_mechanism_BA": 'fault_type',
+    "vs30": "vs30",
+    "vs30measured": "vs30measured",
+    'StationLat.': "station_latitude",
+    'StationLong.': "station_longitude",
+    "z1": "z1",
+    "z2pt5": "z2pt5",
+
+    "fc0": "lower_cutoff_frequency_h1",  # FIXME CHECK THIS  hp_h1
+    # "fc0": "lower_cutoff_frequency_h2",
+    "fc1": "upper_cutoff_frequency_h1",
+    # "fc1": "upper_cutoff_frequency_h2",
+    # "fc0": "lowest_usable_frequency_h1",
+    # "fc1": "lowest_usable_frequency_h2",  # if not sure, leave None
+}
+
 
 def accept_file(file_path) -> bool:
     """Tell whether the given source file can be accepted as time history file"""
     return splitext(file_path)[1].startswith('.AT')
 
 
-def find_waveforms_path(
-        metadata: dict,
-        waveform_file_paths: dict[str, Union[dict[str], str]]
-) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Get the full source paths of the waveforms (h1, h2 and v components, in this
-    order) from the given row of your source metadata.
-    Paths can be empty or None, meaning that the relative file is missing. This has to
-    be taken into account in `process_waveforms` in case (see below). If files are not
-    missing, then the file must exist
+def find_sources(file_path: str, metadata: pd.DataFrame) \
+        -> tuple[Optional[str], Optional[str], Optional[str], Optional[pd.Series]]:
+    """Find the file paths of the three waveform components, and their metadata
 
-    :param metadata: Python dict, corresponding to a row of your source metadata table.
-        Each dict key represents a Metadata Field (Column). Note that float, str,
-        datetime and categorical values can also be None (e.g., if the Metadata cell
-        was empty)
-    :param waveform_file_paths: dict of string denoting the scanned time histories
-        source directory. It is a dict of strings denoting directory names or file names.
-        If directory names, the mapped value is a nested dict with the same structure,
-        otherwise it is the file absolute path
+    :param file_path: the waveform path currently processed. Most likely, this is one of
+        the three returned waveform paths, adn the other two are inferred from it
+    :param metadata: the Metadata dataframe. The returned waveforms metadata must be one
+        row of this object as pandas Series, any other object will raise
     """
     metadata_paths = [
         ('' if pd.isna(metadata["fpath_h1"]) else metadata["fpath_h1"]).strip(),
@@ -134,7 +185,7 @@ def find_waveforms_path(
     )
 
 
-def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
+def read_waveform(full_abs_path: str, content: BytesIO, metadata: pd.Series) -> Waveform:
     """Read a waveform from a file path. Modify according to the format you stored
     your time histories"""
     with open(full_abs_path) as f:
@@ -160,16 +211,16 @@ def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
         # return dt, data
 
 
-def process_waveforms(
-        metadata: dict,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]],
-        v: Optional[tuple[float, ndarray]]
+def post_process(
+        metadata: pd.Series,
+        h1: Optional[Waveform],
+        h2: Optional[Waveform],
+        v: Optional[Waveform]
 ) -> tuple[
-    dict,
-    Optional[tuple[float, ndarray]],
-    Optional[tuple[float, ndarray]],
-    Optional[tuple[float, ndarray]]
+    pd.Series,
+    Optional[Waveform],
+    Optional[Waveform],
+    Optional[Waveform]
 ]:
     """Process the waveform(s), returning the same argument modified according to your
     custom processing routine: a new metadata dict, and three obspy Traces denoting the
@@ -333,18 +384,22 @@ def main():
 
     dest_metadata_path = join(dest_root_path, "metadata.hdf")
     dest_waveforms_path = join(dest_root_path, "waveforms")
+    print(f"Destination waveforms path: {dest_waveforms_path}")
+    print(f"Destination metadata path: {dest_metadata_path}")
 
     existing = isfile(dest_metadata_path) or isdir(dest_waveforms_path)
+
     if existing:
         res = input(
-            f'Metadata file ({basename(dest_metadata_path)}) or waveforms dir '
-            f'({basename(dest_waveforms_path)}) already exist in {dest_root_path}.\n'
-            f'If you type "y", Metadata file will be deleted and recreated, and '
-            f'waveforms files potentially overwritten.\n'
-            f'Proceed (y=yes, any key=no)?'
+            f'Some destination data already exists. Type:\n '
+            f'y: delete and re-create all data\n'
+            f'm: delete and re-create metadata, save only new waveform files\n'
+            f'Any key: quit'
         )
-        if res != 'y':
+        if res not in ('y', 'm'):
             sys.exit(1)
+        if res == 'y' and isdir(dest_waveforms_path):
+            shutil.rmtree(dest_waveforms_path)
 
     if isfile(dest_metadata_path):
         os.unlink(dest_metadata_path)
@@ -357,10 +412,10 @@ def main():
 
     logging.info(f'Working directory: {abspath(os.getcwd())}')
     logging.info(f'Run command      : {" ".join([sys.executable] + sys.argv)}')
-    print(f"Source metadata path: {source_metadata_path}")
     print(f"Source waveforms path: {source_waveforms_path}")
+    print(f"Source metadata path: {source_metadata_path}")
 
-    # Download and save locally
+    # Reading metadata fields dtypes and info:
     try:
         dest_metadata_fields_path = join(dest_root_path, 'metadata_fields.yml')
         metadata_fields = get_metadata_fields(dest_metadata_fields_path)
@@ -370,150 +425,143 @@ def main():
         print(exc, file=sys.stderr)
         sys.exit(1)
 
-    print(f'Scanning {source_metadata_path}')
-    min_itemsize = {}
-    max_rows = 0
-    with open(source_metadata_path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            max_rows += 1
-            for dest_col, src_col in id_columns.items():
-                val = row[src_col]
-                if val is not None:
-                    old_val = min_itemsize.get(dest_col, 0)
-                    min_itemsize[dest_col] = max(old_val, len(val))
+    print(f'Scanning source waveforms directory')
+    files = scan_dir(source_waveforms_path)
 
-    print(f'Scanning {source_waveforms_path}')
-    files, num_files = scan_dir(source_waveforms_path)
-
-    print(f'Found {num_files} file(s) as time history candidates')
+    print(f'Source waveforms: found {len(files):,} file(s)')
     pbar = tqdm(
-        total=max_rows,
+        total=len(files),
         bar_format="{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
                    "(estimated remaining time {remaining}s)"
     )
 
-    # output metadata to_hdf kwargs (fixed):
-    hdf_kwargs = {
-        'key': "metadata",  # table name
-        'mode': "a",  # (1st time creates a new file because we deleted it, see above)
-        'format': "table",  # required for appendable table
-        'append': True,  # first batch still uses append=True
-        'min_itemsize': min_itemsize,  # required for strings (used only the 1st time to_hdf is called)  # noqa
-        # 'data_columns': [],  # list of columns you need to query these later
-    }
-
-    print(f'Processing records in {source_metadata_path}')
-    rec_num = 0
+    print(f'Reading source metadata file')
     csv_args = dict(source_metadata_csv_args)
-    csv_args.setdefault('chunksize', 10000)
+    # csv_args.setdefault('chunksize', 10000)
+    csv_args.setdefault('usecols', source_metadata_fields.keys())
+    # set temporarily event_id and station_id as tr, then categorical
+    csv_args.setdefault('dtype', get_source_metadata_dtypes())
     errs = 0
-    for metadata_chunk in pd.read_csv(source_metadata_path, **csv_args):
-        new_metadata = []
-        for record in metadata_chunk.to_dict(orient="records"):
+    metadata = pd.read_csv(source_metadata_path, **csv_args)
+    metadata = metadata.rename(
+        columns={k: v for k, v in source_metadata_fields.items() if v is not None}    # RHB1 and SITE_CLASSIFICATION_EC8  # FIXME DO!
+    )
+    for lbl in ['event_id', 'station_id']:
+        metadata[lbl] = metadata[lbl].astype('category')
+        metadata_fields[lbl]['dtype'] = metadata[lbl].dtype
+    print(f'Source metadata: {len(metadata):,} record(s), '
+          f'{len(metadata.columns):,} field(s) per record')
 
-            rec_num += 1
-            metadata_row = f'metadata row #{rec_num}'
-            pbar.update(1)
+    print(f'Creating harmonized dataset from source')
+    records = []
+    item_num = 0
+    while len(files):
+        num_files = 1
+        file = files.pop()
 
-            step_name = ""
-            components = {'h1': None, 'h2': None, 'v': None}
-            h1_path, h2_path, v_path = None, None, None
-            try:
-                step_name = "find_waveform_paths"
-                h1_path, h2_path, v_path = find_waveforms_path(record, files)
+        step_name = ""
+        h1: Optional[Waveform] = None
+        h2: Optional[Waveform] = None
+        v: Optional[Waveform] = None
 
-                if (h1_path is None) and (h2_path is None) and (v_path is None):
-                    raise Exception('No waveform file')
+        try:
+            step_name = "find_related"
+            h1_path, h2_path, v_path, record = find_sources(file, metadata)
 
-                for comp_name in components:
-                    step_name = f"read_waveform ({comp_name})"
-                    comp_path = {'h1': h1_path, 'h2': h2_path, 'v': v_path}[comp_name]
-                    if comp_path:
-                        components[comp_name] = read_waveform(comp_path, record)
+            # checks:
+            if sum(_ is not None for _ in (h1_path, h2_path, v_path)) == 0:
+                raise Exception('No existing file found')
+            if not isinstance(record, pd.Series):
+                if isinstance(record, pd.DataFrame):
+                    raise Exception('Multiple metadata record found')
+                raise Exception('No metadata record found')
+            for _ in (h1_path, h2_path, v_path):
+                if _ in files:
+                    num_files += 1
+                    files.remove(_)
 
-                if all(_ is None for _ in components.values()):
-                    raise Exception('No waveform read')
-                # elif any(_ is None for _ in components.values()):
-                #     logging.warning(
-                #         f"[WARN] {metadata_row}: only "
-                #         f"{sum(_ is not None for _ in components.values())} "
-                #         f"of 3 components created and saved"
-                #     )
+            comps = {}
+            for cmp_name, cmp_path in zip(('h1', 'h2', 'v'), (h1_path, h2_path, v_path)):
+                step_name = f"read_waveform ({cmp_name})"
+                if cmp_path:
+                    with open_file(cmp_path) as file_p:
+                        comps[cmp_name] = read_waveform(cmp_path, file_p, record)
+            h1, h2, h3 = comps.get('h1'), comps.get('h2'), comps.get('v')
 
-                # process waveforms
-                step_name = "save_waveforms"  # noqa
-                # old_record = dict(record)  # for testing purposes
-                new_record, h1, h2, v = process_waveforms(
-                    record,
-                    components.get('h1'),
-                    components.get('h2'),
-                    components.get('v')
-                )
-                # check record data types:
-                clean_record = {'id': rec_num}
-                for f in new_record.keys():
-                    default_val = metadata_fields[f].get('default')
-                    val = new_record.get(f, default_val)
-                    step_name = f"_cast_dtype (field '{f}')"
-                    dtype = metadata_fields[f]['dtype']
-                    try:
-                        clean_record[f] = cast_dtype(val, dtype)
-                    except AssertionError:
-                        raise AssertionError(f'Invalid value for "{f}": {str(val)}')
+            if all(_ is None for _ in comps.values()):
+                raise Exception('No waveform read')
+            if len(set(_.dt for _ in comps.values())) != 1:
+                raise Exception('Waveform components have mismatching dt')
 
-                # final checks:
-                check_final_metadata(clean_record, h1, h2)
+            # process waveforms
+            step_name = "save_waveforms"  # noqa
+            # old_record = dict(record)  # for testing purposes
+            new_record, h1, h2, v = post_process(record, h1, h2, v)
 
-                # finalize clean_record:
-                avail_comps, sampling_rate = \
-                    finalize_metadata(clean_record, h1, h2, v)
-                clean_record['available_components'] = avail_comps
-                clean_record['sampling_rate'] = sampling_rate if \
-                    pd.notna(sampling_rate) else \
-                    int(metadata_fields['sampling_rate']['default'])
+            # check record data types:
+            item_num += 1
+            clean_record = {'id': item_num}
+            for f in new_record.keys():
+                if f not in metadata_fields:
+                    continue
+                default_val = metadata_fields[f].get('default')
+                val = new_record.get(f, default_val)
+                step_name = f"_cast_dtype (field '{f}')"
+                dtype = metadata_fields[f]['dtype']
+                try:
+                    clean_record[f] = cast_dtype(val, dtype)
+                except AssertionError:
+                    raise AssertionError(f'Invalid value for "{f}": {str(val)}')
 
-                # append metadata:
-                new_metadata.append(clean_record)
+            # final checks:
+            check_final_metadata(clean_record, h1, h2)
 
-                # save waveforms
-                step_name = "save_waveforms"  # noqa
-                file_path = join(dest_waveforms_path, get_file_path(clean_record))
+            # finalize clean_record:
+            avail_comps, sampling_rate = extract_metadata_from_waveforms(h1, h2, v)
+            clean_record['available_components'] = avail_comps
+            clean_record['sampling_rate'] = sampling_rate if \
+                pd.notna(sampling_rate) else \
+                int(metadata_fields['sampling_rate']['default'])
+
+            # save metadata:
+            step_name = "save_metadata"  # noqa
+            records.append(clean_record)
+            if len(records) > 1000:
+                save_metadata(dest_metadata_path, pd.DataFrame(records), metadata_fields)
+                records = []
+
+            # save waveforms
+            step_name = "save_waveforms"  # noqa
+            file_path = join(dest_waveforms_path, get_file_path(clean_record))
+            if not isfile(file_path):
                 save_waveforms(file_path, h1, h2, v)
 
-            except Exception as exc:
-                logging.error(
-                    f"[ERROR] {metadata_row}: {exc} | Step: `{step_name}` | "
-                    f"h1_path : {h1_path or 'N/A'} | h2_path : {h2_path or 'N/A'}"
-                )
-                errs += 1
-                continue
-
-            if rec_num / max_rows > (1 - min_waveforms_ok_ratio):
-                # we processed enough data (1 - waveforms_ok_ratio)
-                ok_ratio = (1 - errs / max_rows)
-                if ok_ratio < min_waveforms_ok_ratio:
-                    # the processed data error ratio is too high:
-                    msg = f'Too many errors ({errs} of {max_rows} records)'
-                    print(msg, file=sys.stderr)
-                    logging.error(msg)
-                    sys.exit(1)
-
-        if new_metadata:
-            # save metadata:
-            new_metadata_df = pd.DataFrame(new_metadata)
-            for col in new_metadata_df.columns:
-                new_metadata_df[col] = cast_dtypes(
-                    new_metadata_df[col],
-                    metadata_fields[col]['dtype']
+        except Exception as exc:
+            logging.error(
+                f"[ERROR] {file}: {exc} | Step: `{step_name}`"
             )
-            new_metadata_df.to_hdf(dest_metadata_path, **hdf_kwargs)
+            errs += 1
+        finally:
+            pbar.update(num_files)
+
+        if pbar.n / pbar.total > (1 - min_waveforms_ok_ratio):
+            # we processed enough data (1 - waveforms_ok_ratio)
+            ok_ratio = 1 - (errs / pbar.total)
+            if ok_ratio < min_waveforms_ok_ratio:
+                # the processed data error ratio is too high:
+                msg = f'Too many errors ({errs} of {pbar.total} records)'
+                print(msg, file=sys.stderr)
+                logging.error(msg)
+                sys.exit(1)
 
     if isfile(dest_metadata_path):
+        if len(records):
+            save_metadata(dest_metadata_path, pd.DataFrame(records), metadata_fields)
         os.chmod(
             dest_metadata_path,
             os.stat(dest_metadata_path).st_mode | stat.S_IRGRP | stat.S_IROTH
         )
+
     pbar.close()
     sys.exit(0)
 
@@ -546,20 +594,57 @@ def setup_logging(filename):
     logger.setLevel(logging.INFO)
 
 
-def scan_dir(source_root_dir) -> tuple[dict[str, Union[dict, str]], int]:
-    """Scan the given directory"""
-    tree = {}
-    num_files = 0
+def get_source_metadata_dtypes() -> dict:
+    event_id_str = {v: k for k, v in source_metadata_fields.items()}['event_id']
+    station_id_str = {v: k for k, v in source_metadata_fields.items()}['station_id']
+    return {event_id_str: str, station_id_str: str}
+
+
+def scan_dir(source_root_dir) -> set[str]:
+    """Scan the given directory. Zip files are opened and treated as directories
+    Use open_file to open any returned file path
+    """
+    files = set()
     for entry in os.scandir(source_root_dir):
         if entry.is_dir():
-            tree[entry.name], _ = scan_dir(entry.path)
-            num_files += _
-        else:
-            file = abspath(entry.path)
-            if accept_file(file):
-                tree[entry.name] = file
-                num_files += 1
-    return tree, num_files
+            files.update(scan_dir(entry.path))
+            continue
+        file_path = abspath(entry.path)
+        if accept_file(file_path):
+            files.add(file_path)
+        elif splitext(entry.name)[1].lower() == '.zip':
+            with zipfile.ZipFile(file_path, 'r') as z:
+                for name in z.namelist():
+                    file_path2 = join(file_path, name)
+                    if accept_file(file_path2):
+                        files.add(file_path2)
+    return files
+
+
+def open_file(file_path) -> BytesIO:
+    """
+    Open a regular file or a file inside a .zip archive. file_path is any item
+    returned by `scan_dir`
+    """
+    fp_lower = file_path.lower()
+    if f".zip{os.sep}" in fp_lower:
+        idx = fp_lower.index(".zip")
+        zip_path, inner_path = file_path[:idx + 4], file_path[idx + 5:]
+        with zipfile.ZipFile(zip_path, "r") as z:
+            data = z.read(inner_path)
+    elif fp_lower.endswith(".zip"):
+        zip_path = file_path
+        with zipfile.ZipFile(zip_path, "r") as z:
+            namelist = z.namelist()
+            if len(namelist) != 1:
+                raise ValueError(
+                    f"{file_path} contains {len(namelist)} files, expected one only")
+            data = z.read(namelist[0])
+    else:
+        with open(file_path, "rb") as f:
+            data = f.read()
+
+    return BytesIO(data)
 
 
 def get_metadata_fields(dest_path):
@@ -584,20 +669,6 @@ def get_metadata_fields(dest_path):
     return metadata_fields
 
 
-def read_wafevorms(file_path):
-    """Reads the file path previously saved. NOT USED, HERE ONLY FOR REF"""
-    with h5py.File(file_path, "r") as f:
-        h1_data = f["h1"][:] if "h1" in f else np.array([])
-        h1_dt = f["h1"].attrs["dt"] if "h1" in f else None
-
-        h2_data = f["h2"][:] if "h2" in f else np.array([])
-        h2_dt = f["h2"].attrs["dt"] if "h2" in f else None
-
-        v_data = f["v"][:] if "v" in f else np.array([])
-        v_dt = f["v"].attrs["dt"] if "v" in f else None
-    return (h1_dt, h1_data), (h2_dt, h2_data), (v_dt, v_data)
-
-
 def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
     if dtype == 'int':
         assert isinstance(val, int) or (isinstance(val, float) and int(val) == val)
@@ -620,55 +691,6 @@ def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
     return val
 
 
-def save_waveforms(
-        file_path,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]],
-        v: Optional[tuple[float, ndarray]]
-):
-    if not isdir(dirname(file_path)):
-        os.makedirs(dirname(file_path))
-
-    with h5py.File(file_path, "w") as f:
-        # Save existing components
-        if h1 is not None:
-            f.create_dataset("h1", data=h1[1])
-            f["h1"].attrs["dt"] = h1[0]
-
-        if h2 is not None:
-            f.create_dataset("h2", data=h2[1])
-            f["h2"].attrs["dt"] = h2[0]
-
-        if v is not None:
-            f.create_dataset("v", data=v[1])
-            f["v"].attrs["dt"] = v[0]
-
-    # Add read permission for group (stat.S_IRGRP) and others (stat.S_IROTH).
-    if isfile(file_path):
-        os.chmod(file_path, os.stat(file_path).st_mode | stat.S_IRGRP | stat.S_IROTH)
-
-
-def cast_dtypes(values: Any, dtype: Union[str, pd.CategoricalDtype]):
-    """
-    Cast the values of the output metadata. Safety method (each value in `values` is
-    the outcome of `cast_dtype` so it should be of the correct dtype already)
-    """
-    if dtype == 'int':
-        # assert pd.notna(values).all()
-        return values.astype(int)
-    elif dtype == 'bool':
-        return values.astype(bool)
-    elif dtype == 'datetime':
-        return pd.to_datetime(values, errors='coerce')
-    elif dtype == 'str':
-        return values.astype(str)
-    elif dtype == 'float':
-        return values.astype(float)
-    elif isinstance(dtype, pd.CategoricalDtype):
-        return values.astype(dtype)
-    raise AssertionError(f'Unrecognized dtype {dtype}')
-
-
 def get_file_path(metadata: dict):
     """Return the file (relative) path from the given metadata
     (record metadata already cleaned)"""
@@ -678,20 +700,16 @@ def get_file_path(metadata: dict):
     )
 
 
-def check_final_metadata(
-        metadata: dict,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]]
-):
+def check_final_metadata(metadata: dict, h1: Optional[Waveform], h2: Optional[Waveform]):
 
     pga = metadata['PGA']
     pga_c = None
     if h1 is not None and h2 is not None:
-        pga_c = np.sqrt(np.max(np.abs(h1[1])) * np.max(np.abs(h2[1])))
+        pga_c = np.sqrt(np.max(np.abs(h1.data)) * np.max(np.abs(h2.data)))
     elif h1 is not None and h2 is None:
-        pga_c = np.max(np.abs(h1[1]))
+        pga_c = np.max(np.abs(h1.data))
     elif h1 is None and h2 is not None:
-        pga_c = np.max(np.abs(h2[1]))
+        pga_c = np.max(np.abs(h2.data))
     if pga_c is not None:
         rtol = pga_retol
         assert np.isclose(pga_c, pga, rtol=rtol, atol=0), \
@@ -710,35 +728,144 @@ def check_final_metadata(
             assert val_after > val_before, f"{t_after} must happen after {t_before}"
 
 
-def finalize_metadata(
-        metadata: dict,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]],
-        v: Optional[tuple[float, ndarray]]
+def extract_metadata_from_waveforms(
+        h1: Optional[Waveform],
+        h2: Optional[Waveform],
+        v: Optional[Waveform]
 ) -> tuple[Optional[str], Optional[int]]:
-    avail_components = (h1 is not None, h2 is not None, v is not None)
     dt = None
-    avail_comps = None
-    if avail_components == (False, False, True):
-        avail_comps = 'V'
-        dt = v[0]
-    elif avail_components == (True, False, False):
-        avail_comps = 'H'
-        dt = h1[0]
-    elif avail_components == (False, True, False):
-        avail_comps = 'H'
-        dt = h2[0]
-    elif avail_components == (True, True, False):
-        avail_comps = 'HH'
-        dt = h1[0] if h1[0] == h2[0] else None
-    elif avail_components == (True, True, True):
-        avail_comps = 'HHV'
-        dt = h1[0] if h1[0] == h2[0] == v[0] else None
+    avail_comps = ''
+    for comp, avail_comp_str in zip((h1, h2, v), ('H', 'H', 'V')):
+        if comp is None:
+            continue
+        if avail_comps == '':  # first non null component
+            dt = comp.dt
+        elif comp.dt != dt:
+            dt = None
+        avail_comps += avail_comp_str
 
-    sampling_rate = None
-    if dt is not None:
-        sampling_rate = int(1./dt) if int(1./dt) == float(1./dt) else None
+    sampling_rate = int(1./dt) if dt is not None and int(1./dt) == 1./dt else None
     return avail_comps, sampling_rate
+
+
+def save_metadata(dest_metadata_path: str, metadata: pd.DataFrame, metadata_fields):
+    if metadata is not None and not metadata.empty:
+        # save metadata:
+        new_metadata_df = pd.DataFrame(metadata)
+        new_metadata_df = new_metadata_df[
+            [c for c in new_metadata_df if c in metadata_fields]
+        ].copy()
+        for col in metadata_fields:
+            new_metadata_df[col] = cast_dtypes(
+                metadata_fields[col]['dtype'],
+                metadata_fields[col].get('default'),
+                new_metadata_df.get(col),
+                new_metadata_df
+            )
+        hdf_kwargs = {
+            'key': "metadata",  # table name
+            'mode': "a",
+            # (1st time creates a new file because we deleted it, see above)
+            'format': "table",  # required for appendable table
+            'append': True,  # first batch still uses append=True
+            # 'min_itemsize': {
+            #     'event_id': metadata["event_id"].str.len,
+            #     'station_id': metadata["station_id"].str.len,
+            # },  # required for strings (used only the 1st time to_hdf is called)  # noqa
+            # 'data_columns': [],  # list of columns you need to query these later
+        }
+        new_metadata_df.to_hdf(dest_metadata_path, **hdf_kwargs)
+
+
+def cast_dtypes(
+        dtype: Union[str, pd.CategoricalDtype],
+        default_value: Any,
+        dataframe_column: str,
+        dataframe: pd.DataFrame
+):
+    """
+    Cast the values of the output metadata. Safety method (each value in `values` is
+    the outcome of `cast_dtype` so it should be of the correct dtype already)
+    """
+    values = dataframe.get(dataframe_column)
+    if dtype == 'int':
+        if values is None:
+            values = [default_value] * len(dataframe)
+        # assert pd.notna(values).all()
+        return values.astype(int)
+    elif dtype == 'bool':
+        if values is None:
+            values = [default_value] * len(dataframe)
+        return values.astype(bool)
+    elif dtype == 'datetime':
+        if values is None:
+            if pd.isna(default_value):
+                default_value = pd.NaT
+            values = [default_value] * len(dataframe)
+        return pd.to_datetime(values, errors='coerce')
+    elif dtype == 'str':
+        if values is None:
+            if pd.isna(default_value):
+                default_value = None
+            values = [default_value] * len(dataframe)
+        return values.astype(str)
+    elif dtype == 'float':
+        if values is None:
+            if pd.isna(default_value):
+                default_value = np.nan
+            values = [default_value] * len(dataframe)
+        return values.astype(float)
+    elif isinstance(dtype, pd.CategoricalDtype):
+        if values is None:
+            if pd.isna(default_value):
+                default_value = None
+            values = [default_value] * len(dataframe)
+        else:
+            cat_values = set(dtype.categories)  # allowed categories
+            invalid = set(values.dropna()) - cat_values  # invalid, non-NA values
+            if invalid:
+                raise AssertionError(
+                    f'Unrecognized categories in {dataframe_column}: {invalid}'
+                )
+        return values.astype(dtype)
+    raise AssertionError(f'Unrecognized dtype {dtype}')
+
+
+def save_waveforms(
+        file_path, h1: Optional[Waveform], h2: Optional[Waveform], v: Optional[Waveform]
+):
+    if not isdir(dirname(file_path)):
+        os.makedirs(dirname(file_path))
+
+    dts = {x.dt for x in (h1, h2, v) if x is not None}
+    assert len(dts), "No waveform to save"  # safety check
+    data_has_samples = {len(x.data) for x in (h1, h2, v) if x is not None}
+    assert all(data_has_samples), "Cannot save empty waveform(s)"
+
+    assert len(dts) == 1, "Non-unique dt in waveforms"
+    dt = dts.pop() if dts else None
+
+    empty = np.array([])
+    with h5py.File(file_path, "w") as f:
+        # Save existing components
+        f.create_dataset("h1", data=empty if h1 is None else h1.data)
+        f.create_dataset("h2", data=empty if h2 is None else h2.data)
+        f.create_dataset("v", data=empty if v is None else v.data)
+        f.attrs["dt"] = dt
+
+    # Add read permission for group (stat.S_IRGRP) and others (stat.S_IROTH).
+    if isfile(file_path):
+        os.chmod(file_path, os.stat(file_path).st_mode | stat.S_IRGRP | stat.S_IROTH)
+
+
+def read_wafevorms(file_path) -> (float, np.ndarray, np.ndarray, np.ndarray):
+    """Reads the file path previously saved. NOT USED, HERE ONLY FOR REF"""
+    with h5py.File(file_path, "r") as f:
+        dt = f.attrs["dt"]
+        h1 = f['h1'][:]
+        h2 = f['h2'][:]
+        v = f['v'][:]
+    return dt, h1, h2, v
 
 
 if __name__ == "__main__":

@@ -15,16 +15,24 @@
 id:
   dtype: int
   help: >- 
-    the unique record id, as sequential integer usually inferred from the source metadata
+    the unique record id. This field is usually code-generated and does not need to be 
+    provided in source datasets
 epicentral_distance:
   dtype: float
   help: epicentral distance (aka repi, in km)
 rupture_distance:
   dtype: float
-  help: rupture_distance (aka rrup, in km).
+  help: rupture_distance (aka rrup, in km)
+rupture_distance2:
+  dtype: float
+  help: >- 
+    rupture_distance (aka rrup, in km) computed from dip2, strike2, rake2, if available
 joyner_boore_distance:
   dtype: float
   help: Joyner-Boore distance (aka rjb, in km)
+joyner_boore_distance2:
+  dtype: float
+  help: Joyner-Boore distance (aka rjb, in km) computed from dip2, strike2, rake2, if available
 hypocentral_distance:
   dtype: float
   help: hypocentral distance (aka rhypo, in km)
@@ -85,29 +93,29 @@ dip:
   dtype: float
   help: >-
     the angle of the fault relative to the horizontal (deg) in [0, 90]. If dip2 is 
-    provided (not missing or N/A), then the actual fault plane is unknown, and dip and 
-    dip2 provide the values for the two conjugate planes
+    provided (not missing or N/A), this value corresponds to one of the two possible 
+    nodal planes from the focal mechanism solution
 dip2:
   dtype: float
-  help: the dip for one of the possible fault planes, or N/A (see dip help for details)
+  help: the dip for one of the possible nodal planes, or N/A (see dip help for details)
 rake:
   dtype: float
   help: >-
     the direction the hanging wall moves, relative to the fault strike (deg) in 
-    [-180, 180]. If rake2 is provided (not missing or N/A), then the actual fault plane 
-    is unknown, and rake and rake2 provide the values for the two conjugate planes
+    [-180, 180]. If rake2 is provided (not missing or N/A), this value corresponds to 
+    one of the two possible nodal planes from the focal mechanism solution
 rake2:
   dtype: float
-  help: The rake for one of the possible fault planes, or N/A (see rake for details)
+  help: The rake for one of the possible nodal planes, or N/A (see rake for details)
 strike:
   dtype: float
   help: >- 
     Strike angle in [0, 360] of the fault plane used to approximate the causative fault 
-    surface. If strike2 is provided (not missing or N/A), then the actual fault plane 
-    is unknown, and strike and strike2 provide the values for the two conjugate planes
+    surface. If strike2 is also provided (not missing or N/A), this value corresponds to 
+    one of the two possible nodal planes from the focal mechanism solution
 strike2:
   dtype: float
-  help: The strike for one of the possible fault planes, or N/A (see strike for details)
+  help: The strike for one of the possible nodal planes, or N/A (see strike for details)
 fault_type:
   dtype: ['Strike-Slip', 'Normal', 'Reverse' , 'Reverse-Oblique', 'Normal-Oblique']
   help: >-

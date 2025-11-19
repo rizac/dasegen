@@ -85,6 +85,9 @@ source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
 # Mapping from source metadata columns to their new names. Map to None to skip renaming
 # and just load the column data
 source_metadata_fields = {
+    'EQ_Code': 'event_id',
+    "StationCode": 'station_id',
+
     'Origin_Meta': 'origin_time',
     'new_record_start_UTC': 'start_time',
     # 'RecordTime': None,
@@ -93,7 +96,6 @@ source_metadata_fields = {
     'PGA_EW': None,
     'PGA_NS': None,
     'PGA_rotd50': 'PGA',
-    'EQ_Code': 'event_id',
     # 'azimuth': metadata.get(54),
     'Repi': 'epicentral_distance',
     'Rhypo': 'hypocentral_distance',
@@ -116,8 +118,6 @@ source_metadata_fields = {
     "fnet_Dip_1": 'dip2',
     "fnet_Rake_1": 'rake2',
     "Focal_mechanism_BA": 'fault_type',
-
-    "StationCode": 'station_id',
     "vs30": "vs30",
     "vs30measured": "vs30measured",
     'StationLat.': "station_latitude",
