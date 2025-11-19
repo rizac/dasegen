@@ -239,15 +239,15 @@ upper_cutoff_frequency_h2:
   help: corner frequency of the low-pass filter of component H2, in Hz
 lowest_usable_frequency_h1:
   dtype: float
-  help: lowest usable frequency of component H1, in Hz usually as ratio of hp_h1
+  help: lowest usable frequency of component H1, in Hz
 lowest_usable_frequency_h2:
   dtype: float
-  help: lowest usable frequency of component H2, in Hz usually as ratio of hp_h2
+  help: lowest usable frequency of component H2, in Hz
 available_components:
   dtype: ['H', 'HH', 'HV', 'V', 'HHV']
   help: >-
-    the available time histories for this recording: H: only one (horizontal 
-    component), HH: the two horizontal components, HV: one horizontal and one vertical,
+    the available time histories for this recording: H: only one horizontal 
+    component, HH: the two horizontal components, HV: one horizontal and one vertical,
     V: only vertical, HHV: all three components (2 horizontal, and the vertical).
     This field is usually code-generated and does not need to be provided in source 
     datasets
