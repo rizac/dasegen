@@ -80,8 +80,13 @@ min_waveforms_ok_ratio = 1/5
 pga_retol = 1/4
 
 # csv arguments for source metadata (e/g. 'header'= None)
-source_metadata_csv_args = {}  # {'header': None} for CSVs with no header
-
+source_metadata_csv_args = {
+    # 'header': None,  # for CSVs with no header
+    'dtype': {  # specifically set dtype (see keys of `source_metadata_fields`)
+        'EQ_Code': str,
+        "StationCode": str
+    }
+}
 # Mapping from source metadata columns to their new names. Map to None to skip renaming
 # and just load the column data
 source_metadata_fields = {
@@ -137,7 +142,9 @@ source_metadata_fields = {
 
 def accept_file(file_path) -> bool:
     """Tell whether the given source file can be accepted as time history file"""
-    return splitext(file_path)[1] in {'.UD2', '.NS2', '.EW2', '.UD', '.NS', '.EW'}  # with *1 => borehole  # FIXME
+    return splitext(file_path)[1] in {
+        '.UD1', '.NS1', '.EW1', '.UD2', '.NS2', '.EW2', '.UD', '.NS', '.EW'
+    }  # with *1 => borehole
 
 
 def find_sources(file_path: str, metadata: pd.DataFrame) \
@@ -177,15 +184,13 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
 
     record: Optional[pd.Series] = None
     ev_id = basename(dirname(file_path))
-    # file name is the composition of sta_id + ev_id, but obviously not exactly
-    # eg 19960511144600 / HYG0129605111446p.EW
-    # HYG012 is th station name, but the rest does not correspond to event id exactly
-    # so build event id candidates:
     for e in [ev_id, ev_id[2:], ev_id[:-2], ev_id[2:-2]]:
         if root.endswith(e + 'p'):
-            sta_id = basename(root)[:6]
+            sta_id = basename(root)[:6]  # station name is first 6 letters
             try:
                 record = metadata.loc[(ev_id, sta_id)].copy()
+                if not isinstance(record, pd.Series):  # safety check
+                    raise KeyError()
                 sta_suffix = f'_{ext[2:3]}' if ext[2:3] else ''
                 record["station_id"] += f'{sta_id}{sta_suffix}'
             except KeyError:
@@ -485,7 +490,7 @@ def main():
     logging.info(f'Working directory: {abspath(os.getcwd())}')
     logging.info(f'Run command      : {" ".join([sys.executable] + sys.argv)}')
     print(f"Source waveforms path: {source_waveforms_path}")
-    print(f"Source metadata path: {source_metadata_path}")
+    print(f"Source metadata path:  {source_metadata_path}")
 
     # Reading metadata fields dtypes and info:
     try:
@@ -497,23 +502,20 @@ def main():
         print(exc, file=sys.stderr)
         sys.exit(1)
 
-    print(f'Scanning source waveforms directory')
+    print(f'Scanning source waveforms directory...', end=" ", flush=True)
     files = scan_dir(source_waveforms_path)
+    print(f'{len(files):,} file(s) found')
 
-    print(f'Source waveforms: found {len(files):,} file(s)')
     pbar = tqdm(
         total=len(files),
         bar_format="{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
                    "(estimated remaining time {remaining}s)"
     )
 
-    print(f'Reading source metadata file')
+    print(f'Reading source metadata file...', end=" ", flush=True)
     csv_args = dict(source_metadata_csv_args)
     # csv_args.setdefault('chunksize', 10000)
     csv_args.setdefault('usecols', source_metadata_fields.keys())
-    # set temporarily event_id and station_id as tr, then categorical
-    csv_args.setdefault('dtype', get_source_metadata_dtypes())
-    errs = 0
     metadata = pd.read_csv(source_metadata_path, **csv_args)
     metadata = metadata.rename(
         columns={k: v for k, v in source_metadata_fields.items() if v is not None}    # RHB1 and SITE_CLASSIFICATION_EC8  # FIXME DO!
@@ -521,20 +523,16 @@ def main():
     for lbl in ['event_id', 'station_id']:
         metadata[lbl] = metadata[lbl].astype('category')
         metadata_fields[lbl]['dtype'] = metadata[lbl].dtype
-    print(f'Source metadata: {len(metadata):,} record(s), '
-          f'{len(metadata.columns):,} field(s) per record')
+    print(f'{len(metadata):,} record(s), {len(metadata.columns):,} field(s) per record')
 
     print(f'Creating harmonized dataset from source')
     records = []
     item_num = 0
+    errs = 0
     while len(files):
         num_files = 1
         file = files.pop()
-
         step_name = ""
-        h1: Optional[Waveform] = None
-        h2: Optional[Waveform] = None
-        v: Optional[Waveform] = None
 
         try:
             step_name = "find_related"
@@ -558,7 +556,6 @@ def main():
                 if cmp_path:
                     with open_file(cmp_path) as file_p:
                         comps[cmp_name] = read_waveform(cmp_path, file_p, record)
-            h1, h2, h3 = comps.get('h1'), comps.get('h2'), comps.get('v')
 
             if all(_ is None for _ in comps.values()):
                 raise Exception('No waveform read')
@@ -567,6 +564,7 @@ def main():
 
             # process waveforms
             step_name = "save_waveforms"  # noqa
+            h1, h2, v = comps.get('h1'), comps.get('h2'), comps.get('v')
             # old_record = dict(record)  # for testing purposes
             new_record, h1, h2, v = post_process(record, h1, h2, v)
 
@@ -664,12 +662,6 @@ def setup_logging(filename):
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
-
-
-def get_source_metadata_dtypes() -> dict:
-    event_id_str = {v: k for k, v in source_metadata_fields.items()}['event_id']
-    station_id_str = {v: k for k, v in source_metadata_fields.items()}['station_id']
-    return {event_id_str: str, station_id_str: str}
 
 
 def scan_dir(source_root_dir) -> set[str]:
