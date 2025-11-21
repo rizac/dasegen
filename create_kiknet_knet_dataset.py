@@ -191,8 +191,13 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
                 record = metadata.loc[(ev_id, sta_id)].copy()
                 if not isinstance(record, pd.Series):  # safety check
                     raise KeyError()
-                sta_suffix = f'_{ext[2:3]}' if ext[2:3] else ''
-                record["station_id"] += f'{sta_id}{sta_suffix}'
+                sta_suffix = f'_{ext[3:4]}' if ext[3:4] else ''
+                if sta_suffix:
+                    sta_id = f'{sta_id}{sta_suffix}'
+                    # Update the Series to use the new dtype:
+                    metadata['station_id'] = metadata['station_id'].cat.\
+                        add_categories([sta_id])
+                    record["station_id"] = sta_id
             except KeyError:
                 continue
             break
