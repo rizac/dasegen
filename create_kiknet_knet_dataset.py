@@ -81,11 +81,9 @@ pga_retol = 1/4
 
 # csv arguments for source metadata (e/g. 'header'= None)
 source_metadata_csv_args = {
-    # 'header': None,  # for CSVs with no header
-    'dtype': {  # specifically set dtype (see keys of `source_metadata_fields`)
-        'EQ_Code': str,
-        "StationCode": str
-    }
+    # 'header': None  # for CSVs with no header
+    # 'dtype': {}  # NOT RECOMMENDED: this might interfere with the default field dtypes
+    # 'usecols': []  # NOT RECOMMENDED: this might interfere with the default field names
 }
 # Mapping from source metadata columns to their new names. Map to None to skip renaming
 # and just load the column data
@@ -147,6 +145,20 @@ def accept_file(file_path) -> bool:
     }  # with *1 => borehole
 
 
+def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
+    """Pre-process the metadata Dataframe. This is usually the place where the given
+    dataframe is setup in order to easily find records from file names, or optimize
+    some columns data (e.g. categorical from string).
+
+    :param metadata: the metadata DataFrame. The dataframe columns present in
+        `source_metadata_fields` are already renamed at this stage
+    """
+    metadata['event_id'] = metadata['event_id'].astype('category')
+    metadata['station_id'] = metadata['station_id'].astype('category')
+    metadata = metadata.set_index(["event_id", "station_id"], drop=True)
+    return metadata
+
+
 def find_sources(file_path: str, metadata: pd.DataFrame) \
         -> tuple[Optional[str], Optional[str], Optional[str], Optional[pd.Series]]:
     """Find the file paths of the three waveform components, and their metadata
@@ -178,29 +190,25 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
     else:
         return None, None, None, None
 
-    if not isinstance(metadata.index, pd.MultiIndex) or \
-            metadata.index.names != ["event_id", "station_id"]:
-        metadata.set_index(["event_id", "station_id"], drop=False, inplace=True)
-
     record: Optional[pd.Series] = None
-    ev_id = basename(dirname(file_path))
-    for e in [ev_id, ev_id[2:], ev_id[:-2], ev_id[2:-2]]:
-        if root.endswith(e + 'p'):
-            sta_id = basename(root)[:6]  # station name is first 6 letters
-            try:
-                record = metadata.loc[(ev_id, sta_id)].copy()
-                if not isinstance(record, pd.Series):  # safety check
-                    raise KeyError()
-                sta_suffix = f'_{ext[3:4]}' if ext[3:4] else ''
-                if sta_suffix:
-                    sta_id = f'{sta_id}{sta_suffix}'
-                    # Update the Series to use the new dtype:
-                    metadata['station_id'] = metadata['station_id'].cat.\
-                        add_categories([sta_id])
-                    record["station_id"] = sta_id
-            except KeyError:
-                continue
-            break
+    try:
+        ev_ids = [int(basename(dirname(file_path))), basename(dirname(file_path))]
+    except (ValueError, TypeError):
+        ev_ids = [basename(dirname(file_path))]
+    for ev_id in ev_ids:
+        sta_id = basename(root)[:6]  # station name is first 6 letters
+        try:
+            record = metadata.loc[(ev_id, sta_id)].copy()
+            if not isinstance(record, pd.Series):  # safety check
+                raise KeyError()
+            sta_suffix = f'_{ext[3:4]}' if ext[3:4] else ''
+            if sta_suffix:
+                sta_id = f'{sta_id}{sta_suffix}'
+            record["station_id"] = sta_id
+            record["event_id"] = str(ev_id)
+        except KeyError:
+            continue
+        break
     return paths + (record, )
 
 
@@ -520,15 +528,20 @@ def main():
     print(f'Reading source metadata file...', end=" ", flush=True)
     csv_args = dict(source_metadata_csv_args)
     # csv_args.setdefault('chunksize', 10000)
-    csv_args.setdefault('usecols', source_metadata_fields.keys())
+    csv_args.setdefault(
+        'usecols', csv_args.get('usecols', {}) | source_metadata_fields.keys()
+    )
     metadata = pd.read_csv(source_metadata_path, **csv_args)
     metadata = metadata.rename(
         columns={k: v for k, v in source_metadata_fields.items() if v is not None}    # RHB1 and SITE_CLASSIFICATION_EC8  # FIXME DO!
     )
-    for lbl in ['event_id', 'station_id']:
-        metadata[lbl] = metadata[lbl].astype('category')
-        metadata_fields[lbl]['dtype'] = metadata[lbl].dtype
-    print(f'{len(metadata):,} record(s), {len(metadata.columns):,} field(s) per record')
+    old_len = len(metadata)
+    metadata = pre_process(metadata.dropna(subset=['event_id', 'station_id']))
+    if len(metadata) < old_len:
+        logging.warning(f'{old_len - len(metadata)} metadata row(s) '
+                        f'removed in pre-processing stage')
+    print(f'{len(metadata):,} record(s), {len(metadata.columns):,} field(s) per record, '
+          f'{old_len - len(metadata)} row(s) removed')
 
     print(f'Creating harmonized dataset from source')
     records = []
@@ -558,13 +571,14 @@ def main():
             comps = {}
             for cmp_name, cmp_path in zip(('h1', 'h2', 'v'), (h1_path, h2_path, v_path)):
                 step_name = f"read_waveform ({cmp_name})"
-                if cmp_path:
+                comps[cmp_name] = None
+                if cmp_path and isfile(cmp_path):
                     with open_file(cmp_path) as file_p:
                         comps[cmp_name] = read_waveform(cmp_path, file_p, record)
 
             if all(_ is None for _ in comps.values()):
                 raise Exception('No waveform read')
-            if len(set(_.dt for _ in comps.values())) != 1:
+            if len(set(_.dt for _ in comps.values() if _ is not None)) != 1:
                 raise Exception('Waveform components have mismatching dt')
 
             # process waveforms

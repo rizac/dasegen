@@ -82,13 +82,8 @@ pga_retol = 1/4
 # csv arguments for source metadata (e/g. 'header'= None)
 source_metadata_csv_args = {
     # 'header': None  # for CSVs with no header
-    'dtype': {  # specifically set dtype (see keys of `source_metadata_fields`)
-        'EQID': str,
-        "station_id": str,
-        "fpath_h1": str,
-        "fpath_h2": str,
-        "fpath_v": str,
-    }
+    # 'dtype': {}  # NOT RECOMMENDED: this might interfere with the default field dtypes
+    # 'usecols': []  # NOT RECOMMENDED: this might interfere with the default field names
 }
 
 # Mapping from source metadata columns to their new names. Map to None to skip renaming
@@ -99,6 +94,7 @@ source_metadata_fields = {
     "fpath_h1": None,
     "fpath_h2": None,
     "fpath_v": None,
+    'Record Sequence Number': None,
 
     "EpiD (km)": "epicentral_distance",
     "HypD (km)": "hypocentral_distance",
@@ -147,6 +143,24 @@ def accept_file(file_path) -> bool:
     return splitext(file_path)[1].startswith('.AT')
 
 
+def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
+    """Pre-process the metadata Dataframe. This is usually the place where the given
+    dataframe is setup in order to easily find records from file names, or optimize
+    some columns data (e.g. categorical from string).
+
+    :param metadata: the metadata DataFrame. The dataframe columns present in
+        `source_metadata_fields` are already renamed at this stage
+    """
+    metadata['event_id'] = metadata['event_id'].astype('category')
+    metadata['station_id'] = metadata['station_id'].astype('category')
+    cols = ["fpath_h1", "fpath_h2", "fpath_v"]
+    metadata = metadata.dropna(subset=cols)
+    for col in cols:
+        metadata[col] = metadata[col].str.strip()
+    metadata = metadata.set_index(cols, drop=True)
+    return metadata
+
+
 def find_sources(file_path: str, metadata: pd.DataFrame) \
         -> tuple[Optional[str], Optional[str], Optional[str], Optional[pd.Series]]:
     """Find the file paths of the three waveform components, and their metadata
@@ -156,28 +170,27 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
     :param metadata: the Metadata dataframe. The returned waveforms metadata must be one
         row of this object as pandas Series, any other object will raise
     """
-    if not isinstance(metadata.index, pd.MultiIndex) or \
-            metadata.index.names != ["fpath_h1", "fpath_h2", "fpath_v"]:
-        metadata.set_index(["fpath_h1", "fpath_h2", "fpath_v"], drop=False, inplace=True)
-
     file_name_candidates = [basename(file_path)]
-    if file_name_candidates[0].startswith('RSN_'):
-        file_name_candidates.append(file_name_candidates[0][4:])
-    elif file_name_candidates[0].startswith('RSN'):
-        file_name_candidates.append(file_name_candidates[0][3:])
-    else:
-        file_name_candidates.append(f'RSN{file_name_candidates[0]}')
-        file_name_candidates.append(f'RSN_{file_name_candidates[0]}')
+    underscore_idx = file_name_candidates[0].find('_')
+    rsn = None
+    if file_name_candidates[0].startswith('RSN') and underscore_idx >= 3:
+        file_name_candidates.append(file_name_candidates[0][underscore_idx+1:])
+        rsn = file_name_candidates[:underscore_idx]
 
     root_dir = dirname(file_path)
     for file_name in file_name_candidates:
         for attempt in [
-            (file_name, slice(None), slice(None)),
-            (slice(None), file_name, slice(None)),
-            (slice(None), slice(None), file_name)
+            ([file_name], slice(None), slice(None)),
+            (slice(None), [file_name], slice(None)),
+            (slice(None), slice(None), [file_name])
         ]:
-            meta = metadata.loc[attempt]  # connote return a Series (slices in loc)
+            try:
+                meta = metadata.loc[attempt]  # connot return a Series (slices in loc)
+            except KeyError:
+                continue
             if len(meta) == 1:
+                if str(meta['Record Sequence Number'].iloc[0]).strip() != rsn:
+                    raise ValueError("File name match, RSN doesn't")
                 file_names = meta.index[0]
                 return (
                     join(root_dir, file_names[0]),
@@ -518,15 +531,20 @@ def main():
     print(f'Reading source metadata file...', end=" ", flush=True)
     csv_args = dict(source_metadata_csv_args)
     # csv_args.setdefault('chunksize', 10000)
-    csv_args.setdefault('usecols', source_metadata_fields.keys())
+    csv_args.setdefault(
+        'usecols', csv_args.get('usecols', {}) | source_metadata_fields.keys()
+    )
     metadata = pd.read_csv(source_metadata_path, **csv_args)
     metadata = metadata.rename(
         columns={k: v for k, v in source_metadata_fields.items() if v is not None}    # RHB1 and SITE_CLASSIFICATION_EC8  # FIXME DO!
     )
-    for lbl in ['event_id', 'station_id']:
-        metadata[lbl] = metadata[lbl].astype('category')
-        metadata_fields[lbl]['dtype'] = metadata[lbl].dtype
-    print(f'{len(metadata):,} record(s), {len(metadata.columns):,} field(s) per record')
+    old_len = len(metadata)
+    metadata = pre_process(metadata.dropna(subset=['event_id', 'station_id']))
+    if len(metadata) < old_len:
+        logging.warning(f'{old_len - len(metadata)} metadata row(s) '
+                        f'removed in pre-processing stage')
+    print(f'{len(metadata):,} record(s), {len(metadata.columns):,} field(s) per record, '
+          f'{old_len - len(metadata)} row(s) removed')
 
     print(f'Creating harmonized dataset from source')
     records = []
@@ -556,13 +574,14 @@ def main():
             comps = {}
             for cmp_name, cmp_path in zip(('h1', 'h2', 'v'), (h1_path, h2_path, v_path)):
                 step_name = f"read_waveform ({cmp_name})"
-                if cmp_path:
+                comps[cmp_name] = None
+                if cmp_path and isfile(cmp_path):
                     with open_file(cmp_path) as file_p:
                         comps[cmp_name] = read_waveform(cmp_path, file_p, record)
 
             if all(_ is None for _ in comps.values()):
                 raise Exception('No waveform read')
-            if len(set(_.dt for _ in comps.values())) != 1:
+            if len(set(_.dt for _ in comps.values() if _ is not None)) != 1:
                 raise Exception('Waveform components have mismatching dt')
 
             # process waveforms

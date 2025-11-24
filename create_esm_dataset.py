@@ -31,7 +31,9 @@ A new metadata file metadata.csv will be also created in the same directory
 """
 from __future__ import annotations
 
-from typing import Optional, Any, Union
+import shutil
+import zipfile
+from typing import Optional, Any, Union, Sequence
 import logging
 import urllib.request
 import os
@@ -54,20 +56,20 @@ import glob
 from io import BytesIO
 import math
 from tqdm import tqdm
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class Waveform:
+    """Simple class handling a Waveform (Time History single component)"""
+    dt: float
+    data: Sequence[float]
 
 
 ########################################################################
 # Editable file part: please read carefully and implement your routine #
 ########################################################################
 
-# id columns (YAML file names mapped to source catalog names):
-id_columns = {
-    'event_id': 'event_id',
-    'station_id': 'station_id'
-}
-
-# csv arguments for source metadata (e/g. 'header'= None)
-source_metadata_csv_args = {'sep': ';'}  # {'header': None} for CSVs with no header
 
 # The program will stop if the successfully processed waveform ratio falls below this
 # value that must be in [0, 1] (this makes spotting errors and checking log faster):
@@ -77,104 +79,188 @@ min_waveforms_ok_ratio = 1/5
 # | PGA - PGA_computed | <= pga_retol * | PGA |
 pga_retol = 1/4
 
+# csv arguments for source metadata (e/g. 'header'= None)
+source_metadata_csv_args = {
+    # 'header': None  # for CSVs with no header
+    # 'dtype': {}  # NOT RECOMMENDED: this might interfere with the default field dtypes
+    # 'usecols': []  # NOT RECOMMENDED: this might interfere with the default field names
+}
+
+# Mapping from source metadata columns to their new names. Map to None to skip renaming
+# and just load the column data
+source_metadata_fields = {
+    'EQID': "event_id",
+    "station_id": "station_id",
+    "fpath_h1": None,
+    "fpath_h2": None,
+    "fpath_v": None,
+
+    "EpiD (km)": "epicentral_distance",
+    "HypD (km)": "hypocentral_distance",
+    "Joyner-Boore Dist. (km)": "joyner_boore_distance",
+    "ClstD (km)": "rupture_distance",
+    "Rx": "fault_normal_distance",
+    'YEAR': None,
+    'MODY': None,
+    'HRMN': None,
+    "Hypocenter Latitude (deg)": "event_latitude",
+    "Hypocenter Longitude (deg)": "event_longitude",
+    "Hypocenter Depth (km)": "event_depth",
+    "Earthquake Magnitude": "magnitude",
+    "Magnitude Type": "magnitude_type",
+    "Depth to Top Of Fault Rupture Model": "depth_to_top_of_fault_rupture",
+    "Fault Rupture Width (km)": "fault_rupture_width",
+    "Strike (deg)": "strike",
+    "Dip (deg)": "dip",
+    "Rake Angle (deg)": "rake",
+
+    "Mechanism Based on Rake Angle": "fault_type",
+    "Vs30 (m/s) selected for analysis": "vs30",
+    # vs30measured is a boolean expression; treated as key
+    "Measured/Inferred Class": "vs30measured",
+    "Station Latitude": "station_latitude",
+    "Station Longitude": "station_longitude",
+    "Northern CA/Southern CA - H11 Z1 (m)": "z1",
+    "Northern CA/Southern CA - H11 Z2.5 (m)": "z2pt5",
+
+    "Type of Filter": "filter_type",
+    "npass": "npass",
+    "nroll": "nroll",
+    "HP-H1 (Hz)": "lower_cutoff_frequency_h1",
+    "HP-H2 (Hz)": "lower_cutoff_frequency_h2",
+    "LP-H1 (Hz)": "upper_cutoff_frequency_h1",
+    "LP-H2 (Hz)": "upper_cutoff_frequency_h2",
+    "Lowest Usable Freq - H1 (Hz)": "lowest_usable_frequency_h1",
+    "Lowest Usable Freq - H2 (H2)": "lowest_usable_frequency_h2",
+
+    "PGA (g)": "PGA"
+}
+
 
 def accept_file(file_path) -> bool:
     """Tell whether the given source file can be accepted as time history file"""
-    return splitext(file_path)[1] == '.zip'
+    return splitext(file_path)[1].startswith('.AT')
 
 
-def find_waveforms_path(
-        metadata: dict,
-        waveform_file_paths: dict[str, Union[dict[str], str]]
-) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Get the full source paths of the waveforms (h1, h2 and v components, in this
-    order) from the given row of your source metadata.
-    Paths can be empty or None, meaning that the relative file is missing. This has to
-    be taken into account in `process_waveforms` in case (see below). If files are not
-    missing, then the file must exist
+def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
+    """Pre-process the metadata Dataframe. This is usually the place where the given
+    dataframe is setup in order to easily find records from file names, or optimize
+    some columns data (e.g. categorical from string).
 
-    :param metadata: Python dict, corresponding to a row of your source metadata table.
-        Each dict key represents a Metadata Field (Column). Note that float, str,
-        datetime and categorical values can also be None (e.g., if the Metadata cell
-        was empty)
-    :param waveform_file_paths: dict of string denoting the scanned time histories
-        source directory. It is a dict of strings denoting directory names or file names.
-        If directory names, the mapped value is a nested dict with the same structure,
-        otherwise it is the file absolute path
+    :param metadata: the metadata DataFrame. The dataframe columns present in
+        `source_metadata_fields` are already renamed at this stage
     """
-    metadata_paths = [
-        ('' if pd.isna(metadata["fpath_h1"]) else metadata["fpath_h1"]).strip(),
-        ('' if pd.isna(metadata["fpath_h2"]) else metadata["fpath_h2"]).strip(),
-        ('' if pd.isna(metadata["fpath_v"]) else metadata["fpath_v"]).strip()
-    ]
-    file_paths = [[], [], []]
-
-    rsn = str(metadata['Record Sequence Number'])
-
-    for dir_name in waveform_file_paths:
-        for file_abs_path in waveform_file_paths[dir_name].values():
-            bname = basename(file_abs_path)
-            for i in range(len(metadata_paths)):
-                metadata_path = metadata_paths[i]
-                if not metadata_path or not bname:
-                    continue
-                metadata_path = f'{rsn}_{metadata_path}'
-                if bname.startswith('RSN_'):
-                    metadata_path = f'RSN_{metadata_path}'
-                elif bname.startswith('RSN'):
-                    metadata_path = f'RSN{metadata_path}'
-                if metadata_path == bname:
-                    file_paths[i].append(file_abs_path)
-                    continue
-
-    return (
-        file_paths[0][0] if len(file_paths[0]) == 1 else None,
-        file_paths[1][0] if len(file_paths[1]) == 1 else None,
-        file_paths[2][0] if len(file_paths[2]) == 1 else None
-    )
+    metadata['event_id'] = metadata['event_id'].astype('category')
+    metadata['station_id'] = metadata['station_id'].astype('category')
+    metadata = metadata.set_index(["fpath_h1", "fpath_h2", "fpath_v"], drop=True)
+    return metadata
 
 
-def read_waveform(full_abs_path: str, metadata: dict) -> tuple[float, ndarray]:
+def find_sources(file_path: str, metadata: pd.DataFrame) \
+        -> tuple[Optional[str], Optional[str], Optional[str], Optional[pd.Series]]:
+    """Find the file paths of the three waveform components, and their metadata
+
+    :param file_path: the waveform path currently processed. Most likely, this is one of
+        the three returned waveform paths, adn the other two are inferred from it
+    :param metadata: the Metadata dataframe. The returned waveforms metadata must be one
+        row of this object as pandas Series, any other object will raise
+    """
+    file_name_candidates = [basename(file_path)]
+    if file_name_candidates[0].startswith('RSN_'):
+        file_name_candidates.append(file_name_candidates[0][4:])
+    elif file_name_candidates[0].startswith('RSN'):
+        file_name_candidates.append(file_name_candidates[0][3:])
+    else:
+        file_name_candidates.append(f'RSN{file_name_candidates[0]}')
+        file_name_candidates.append(f'RSN_{file_name_candidates[0]}')
+
+    root_dir = dirname(file_path)
+    for file_name in file_name_candidates:
+        for attempt in [
+            (file_name, slice(None), slice(None)),
+            (slice(None), file_name, slice(None)),
+            (slice(None), slice(None), file_name)
+        ]:
+            meta = metadata.loc[attempt]  # connote return a Series (slices in loc)
+            if len(meta) == 1:
+                file_names = meta.index[0]
+                return (
+                    join(root_dir, file_names[0]),
+                    join(root_dir, file_names[1]),
+                    join(root_dir, file_names[2]),
+                    meta.iloc[0]  # convert to Series
+                )
+
+    return None, None, None, None
+
+    # metadata_paths = [
+    #     ('' if pd.isna(metadata["fpath_h1"]) else metadata["fpath_h1"]).strip(),
+    #     ('' if pd.isna(metadata["fpath_h2"]) else metadata["fpath_h2"]).strip(),
+    #     ('' if pd.isna(metadata["fpath_v"]) else metadata["fpath_v"]).strip()
+    # ]
+    # file_paths = [[], [], []]
+    #
+    # rsn = str(metadata['Record Sequence Number'])
+    #
+    # for dir_name in waveform_file_paths:
+    #     for file_abs_path in waveform_file_paths[dir_name].values():
+    #         bname = basename(file_abs_path)
+    #         for i in range(len(metadata_paths)):
+    #             metadata_path = metadata_paths[i]
+    #             if not metadata_path or not bname:
+    #                 continue
+    #             metadata_path = f'{rsn}_{metadata_path}'
+    #             if bname.startswith('RSN_'):
+    #                 metadata_path = f'RSN_{metadata_path}'
+    #             elif bname.startswith('RSN'):
+    #                 metadata_path = f'RSN{metadata_path}'
+    #             if metadata_path == bname:
+    #                 file_paths[i].append(file_abs_path)
+    #                 continue
+    #
+    # return (
+    #     file_paths[0][0] if len(file_paths[0]) == 1 else None,
+    #     file_paths[1][0] if len(file_paths[1]) == 1 else None,
+    #     file_paths[2][0] if len(file_paths[2]) == 1 else None
+    # )
+
+
+def read_waveform(full_abs_path: str, content: BytesIO, metadata: pd.Series) -> Waveform:
     """Read a waveform from a file path. Modify according to the format you stored
     your time histories"""
-    with open(full_abs_path) as f:
-        # First few lines are headers
-        header1 = f.readline().strip()
-        val = f.readline().split(":")[-1].strip()
-        metadata.setdefault('event_id', val)
 
-        val = f.readline().split(":")[-1].strip()
-        metadata.setdefault('event_id', val)
+    # First few lines are headers
+    header1 = content.readline().strip()
+    header2 = content.readline().strip()
+    header3 = content.readline().strip()
+    header4 = content.readline().split(",")
+    npts = int(re.match(r"NPTS\s*=\s*(\d+)", header4[0].strip()).group(1))
+    dt = float(re.match(r"DT\s*=\s*([\.\d]+)\s*SEC", header4[1].strip()).group(1))
+    data_str = " ".join(line for line in content)
+    # The acceleration time series is given in units of g. So I convert it in m/s.
+    return dt, np.fromstring(data_str, sep=" ") * 9.80665
 
-        header3 = f.readline().strip()
-        header4 = f.readline().split(",")
-        npts = int(re.match(r"NPTS\s*=\s*(\d+)", header4[0].strip()).group(1))
-        dt = float(re.match(r"DT\s*=\s*([\.\d]+)\s*SEC", header4[1].strip()).group(1))
-        data_str = " ".join(line for line in f)
-        # The acceleration time series is given in units of g. So I convert it in m/s.
-        return dt, np.fromstring(data_str, sep=" ") * 9.80665
-
-        # The acceleration time series is given in units of g. So I convert it in m/s.
-        # However it is said only that its in the units of g, not sure if its 980 cm/s^ or 9.8 m/s^2
-        # g = 9.8  # in (m/s^2)
-        # data = np.array([number * g for number in data])
-        # pga = max([abs(number) for number in data])
-        # pga = max(np.abs(data))
-        # pga_ind = [abs(number) for number in data].index(pga)
-        # pga_ind = np.argmax(np.abs(data))
-        # return dt, data
+    # The acceleration time series is given in units of g. So I convert it in m/s.
+    # However it is said only that its in the units of g, not sure if its 980 cm/s^ or 9.8 m/s^2
+    # g = 9.8  # in (m/s^2)
+    # data = np.array([number * g for number in data])
+    # pga = max([abs(number) for number in data])
+    # pga = max(np.abs(data))
+    # pga_ind = [abs(number) for number in data].index(pga)
+    # pga_ind = np.argmax(np.abs(data))
+    # return dt, data
 
 
-def process_waveforms(
-        metadata: dict,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]],
-        v: Optional[tuple[float, ndarray]]
+def post_process(
+        metadata: pd.Series,
+        h1: Optional[Waveform],
+        h2: Optional[Waveform],
+        v: Optional[Waveform]
 ) -> tuple[
-    dict,
-    Optional[tuple[float, ndarray]],
-    Optional[tuple[float, ndarray]],
-    Optional[tuple[float, ndarray]]
+    pd.Series,
+    Optional[Waveform],
+    Optional[Waveform],
+    Optional[Waveform]
 ]:
     """Process the waveform(s), returning the same argument modified according to your
     custom processing routine: a new metadata dict, and three obspy Traces denoting the
@@ -201,10 +287,7 @@ def process_waveforms(
     :param h2: second horizontal component, same format as h1
     :param v: vertical component, same format as h1
     """
-    # pga check
-    pga = metadata["PGA (g)"] * 9.80665  # convert m/sec square
-
-    # compute arrival time (correct)
+    # convert time(s):
     year = metadata['YEAR']
     month_day = str(metadata['MODY'])
     if month_day in (-999, '-999'):
@@ -215,14 +298,59 @@ def process_waveforms(
     hour_min = str(metadata['HRMN'])
     if hour_min in (-999, '-999'):
         evt_time = pd.NaT
+        evt_date = datetime(
+            year=year, month=month, day=day, hour=0, minute=0, second=0, microsecond=0
+        )
     else:
         hour_min = hour_min.zfill(4)  # pad with zeroes
         hour, min = int(hour_min[:2]), int(hour_min[2:])
         evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
+        evt_date = evt_time.replace(hour=0, minute=0, second=0, microsecond=0)
     # use datetimes also for event_date (for simplicity when casting later):
-    evt_date = evt_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    evt_id = str(metadata.get('EQID'))
-    sta_id = str(metadata["station_id"])
+    metadata["origin_date"] = evt_date
+    metadata["origin_time"] = evt_time
+
+    if metadata["filter_type"] in (-999, '-999'):
+        metadata["filter_type"] = None
+
+    if metadata['magnitude_type'] == 'U':
+        metadata['magnitude_type'] = None
+
+    try:
+        metadata['fault_type'] = [
+            'Strike-Slip', 'Normal', 'Reverse', 'Reverse-Oblique', 'Normal-Oblique'
+        ][int(metadata['fault_type'])]
+    except (IndexError, ValueError, TypeError):
+        metadata['fault_type'] = None
+
+    # convert from g to m/s2:
+    metadata["PGA"] = metadata["PGA"] * 9.80665
+
+    # simply return the arguments (no processing by default):
+    return metadata, h1, h2, v
+
+    # pga check
+    # pga = metadata["PGA (g)"] * 9.80665  # convert m/sec square
+
+    # compute arrival time (correct)
+    # year = metadata['YEAR']
+    # month_day = str(metadata['MODY'])
+    # if month_day in (-999, '-999'):
+    #     raise AssertionError('Invalid month_day')
+    # month_day = month_day.zfill(4)  # pad with zeroes
+    # month, day = int(month_day[:2]), int(month_day[2:])
+    #
+    # hour_min = str(metadata['HRMN'])
+    # if hour_min in (-999, '-999'):
+    #     evt_time = pd.NaT
+    # else:
+    #     hour_min = hour_min.zfill(4)  # pad with zeroes
+    #     hour, min = int(hour_min[:2]), int(hour_min[2:])
+    #     evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
+    # # use datetimes also for event_date (for simplicity when casting later):
+    # evt_date = evt_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    # evt_id = str(metadata.get('EQID'))
+    # sta_id = str(metadata["station_id"])
 
     # """
     # Record Sequence Number,EQID,Earthquake Name,YEAR,MODY,HRMN,Station Name,
@@ -257,69 +385,72 @@ def process_waveforms(
     # Type of Filter,npass,nroll,HP-H1 (Hz),HP-H2 (Hz),LP-H1 (Hz),LP-H2 (Hz),Factor,
     # Lowest Usable Freq - H1 (Hz),Lowest Usable Freq - H2 (H2),Lowest Usable Freq - Ave. Component (Hz),PGA (g),PGV (cm/sec),PGD (cm),T0.010S,T0.020S,T0.022S,T0.025S,T0.029S,T0.030S,T0.032S,T0.035S,T0.036S,T0.040S,T0.042S,T0.044S,T0.045S,T0.046S,T0.048S,T0.050S,T0.055S,T0.060S,T0.065S,T0.067S,T0.070S,T0.075S,T0.080S,T0.085S,T0.090S,T0.095S,T0.100S,T0.110S,T0.120S,T0.130S,T0.133S,T0.140S,T0.150S,T0.160S,T0.170S,T0.180S,T0.190S,T0.200S,T0.220S,T0.240S,T0.250S,T0.260S,T0.280S,T0.290S,T0.300S,T0.320S,T0.340S,T0.350S,T0.360S,T0.380S,T0.400S,T0.420S,T0.440S,T0.450S,T0.460S,T0.480S,T0.500S,T0.550S,T0.600S,T0.650S,T0.667S,T0.700S,T0.750S,T0.800S,T0.850S,T0.900S,T0.950S,T1.000S,T1.100S,T1.200S,T1.300S,T1.400S,T1.500S,T1.600S,T1.700S,T1.800S,T1.900S,T2.000S,T2.200S,T2.400S,T2.500S,T2.600S,T2.800S,T3.000S,T3.200S,T3.400S,T3.500S,T3.600S,T3.800S,T4.000S,T4.200S,T4.400S,T4.600S,T4.800S,T5.000S,T5.500S,T6.000S,T6.500S,T7.000S,T7.500S,T8.000S,T8.500S,T9.000S,T9.500S,T10.000S,T11.000S,T12.000S,T13.000S,T14.000S,T15.000S,T20.000S
     # """
-    new_metadata = {
-        'event_id': evt_id,
-        'epicentral_distance': metadata["EpiD (km)"],
-        'hypocentral_distance': metadata["HypD (km)"],
-        'joyner_boore_distance': metadata["Joyner-Boore Dist. (km)"],
-        'rupture_distance': metadata["ClstD (km)"],
-        'fault_normal_distance': metadata['Rx'],
-        'origin_time': evt_time,
-        'origin_date': evt_date,
-        'event_latitude': metadata["Hypocenter Latitude (deg)"],
-        'event_longitude': metadata["Hypocenter Longitude (deg)"],
-        'event_depth': metadata["Hypocenter Depth (km)"],
-        'magnitude': metadata["Earthquake Magnitude"],
-        'magnitude_type': metadata["Magnitude Type"],
-        'depth_to_top_of_fault_rupture': metadata["Depth to Top Of Fault Rupture Model"],
-        'fault_rupture_width': metadata["Fault Rupture Width (km)"],
-        'strike': metadata["Strike (deg)"],
-        'dip': metadata["Dip (deg)"],
-        'rake': metadata["Rake Angle (deg)"],
-        'strike2': None,
-        'dip2': None,
-        'rake2': None,
-        'fault_type': metadata["Mechanism Based on Rake Angle"],
 
-        'station_id': sta_id,
-        "vs30": metadata["Vs30 (m/s) selected for analysis"],
-        "vs30measured": metadata["Measured/Inferred Class"] in {0, "0", 0.0},
-        "station_latitude": metadata["Station Latitude"],
-        "station_longitude": metadata["Station Longitude"],
-        "z1": metadata["Northern CA/Southern CA - H11 Z1 (m)"],
-        "z2pt5": metadata["Northern CA/Southern CA - H11 Z2.5 (m)"],
-        "region": 0,
 
-        # "sensor_type": 'A',
-        "filter_type": metadata["Type of Filter"],
-        "npass": metadata["npass"],
-        "nroll": metadata["nroll"],
-        "lower_cutoff_frequency_h1": metadata["HP-H1 (Hz)"],
-        "lower_cutoff_frequency_h2": metadata["HP-H2 (Hz)"],
-        "upper_cutoff_frequency_h1": metadata["LP-H1 (Hz)"],
-        "upper_cutoff_frequency_h2": metadata["LP-H2 (Hz)"],
-        "lowest_usable_frequency_h1": metadata["Lowest Usable Freq - H1 (Hz)"],
-        "lowest_usable_frequency_h2": metadata["Lowest Usable Freq - H2 (H2)"],
-        'PGA': pga,
-    }
+
+    # new_metadata = {
+    #     'event_id': evt_id,
+    #     'epicentral_distance': metadata["EpiD (km)"],
+    #     'hypocentral_distance': metadata["HypD (km)"],
+    #     'joyner_boore_distance': metadata["Joyner-Boore Dist. (km)"],
+    #     'rupture_distance': metadata["ClstD (km)"],
+    #     'fault_normal_distance': metadata['Rx'],
+    #     'origin_time': evt_time,
+    #     'origin_date': evt_date,
+    #     'event_latitude': metadata["Hypocenter Latitude (deg)"],
+    #     'event_longitude': metadata["Hypocenter Longitude (deg)"],
+    #     'event_depth': metadata["Hypocenter Depth (km)"],
+    #     'magnitude': metadata["Earthquake Magnitude"],
+    #     'magnitude_type': metadata["Magnitude Type"],
+    #     'depth_to_top_of_fault_rupture': metadata["Depth to Top Of Fault Rupture Model"],
+    #     'fault_rupture_width': metadata["Fault Rupture Width (km)"],
+    #     'strike': metadata["Strike (deg)"],
+    #     'dip': metadata["Dip (deg)"],
+    #     'rake': metadata["Rake Angle (deg)"],
+    #     'strike2': None,
+    #     'dip2': None,
+    #     'rake2': None,
+    #     'fault_type': metadata["Mechanism Based on Rake Angle"],
+    #
+    #     'station_id': sta_id,
+    #     "vs30": metadata["Vs30 (m/s) selected for analysis"],
+    #     "vs30measured": metadata["Measured/Inferred Class"] in {0, "0", 0.0},
+    #     "station_latitude": metadata["Station Latitude"],
+    #     "station_longitude": metadata["Station Longitude"],
+    #     "z1": metadata["Northern CA/Southern CA - H11 Z1 (m)"],
+    #     "z2pt5": metadata["Northern CA/Southern CA - H11 Z2.5 (m)"],
+    #     "region": 0,
+    #
+    #     # "sensor_type": 'A',
+    #     "filter_type": metadata["Type of Filter"],
+    #     "npass": metadata["npass"],
+    #     "nroll": metadata["nroll"],
+    #     "lower_cutoff_frequency_h1": metadata["HP-H1 (Hz)"],
+    #     "lower_cutoff_frequency_h2": metadata["HP-H2 (Hz)"],
+    #     "upper_cutoff_frequency_h1": metadata["LP-H1 (Hz)"],
+    #     "upper_cutoff_frequency_h2": metadata["LP-H2 (Hz)"],
+    #     "lowest_usable_frequency_h1": metadata["Lowest Usable Freq - H1 (Hz)"],
+    #     "lowest_usable_frequency_h2": metadata["Lowest Usable Freq - H2 (H2)"],
+    #     'PGA': pga,
+    # }
 
     # correct missing values:
 
-    if new_metadata["filter_type"] in (-999, '-999'):
-        new_metadata["filter_type"] = None
-
-    if new_metadata['magnitude_type'] == 'U':
-        new_metadata['magnitude_type'] = None
-
-    try:
-        new_metadata['fault_type'] = [
-            'Strike-Slip', 'Normal', 'Reverse', 'Reverse-Oblique', 'Normal-Oblique'
-        ][int(new_metadata['fault_type'])]
-    except (IndexError, ValueError, TypeError):
-        new_metadata['fault_type'] = None
-
-    # simply return the arguments (no processing by default):
-    return new_metadata, h1, h2, v
+    # if new_metadata["filter_type"] in (-999, '-999'):
+    #     new_metadata["filter_type"] = None
+    #
+    # if new_metadata['magnitude_type'] == 'U':
+    #     new_metadata['magnitude_type'] = None
+    #
+    # try:
+    #     new_metadata['fault_type'] = [
+    #         'Strike-Slip', 'Normal', 'Reverse', 'Reverse-Oblique', 'Normal-Oblique'
+    #     ][int(new_metadata['fault_type'])]
+    # except (IndexError, ValueError, TypeError):
+    #     new_metadata['fault_type'] = None
+    #
+    # # simply return the arguments (no processing by default):
+    # return new_metadata, h1, h2, v
 
 
 ###########################################
@@ -338,18 +469,22 @@ def main():
 
     dest_metadata_path = join(dest_root_path, "metadata.hdf")
     dest_waveforms_path = join(dest_root_path, "waveforms")
+    print(f"Destination waveforms path: {dest_waveforms_path}")
+    print(f"Destination metadata path: {dest_metadata_path}")
 
     existing = isfile(dest_metadata_path) or isdir(dest_waveforms_path)
+
     if existing:
         res = input(
-            f'Metadata file ({basename(dest_metadata_path)}) or waveforms dir '
-            f'({basename(dest_waveforms_path)}) already exist in {dest_root_path}.\n'
-            f'If you type "y", Metadata file will be deleted and recreated, and '
-            f'waveforms files potentially overwritten.\n'
-            f'Proceed (y=yes, any key=no)?'
+            f'Some destination data already exists. Type:\n '
+            f'y: delete and re-create all data\n'
+            f'm: delete and re-create metadata, save only new waveform files\n'
+            f'Any key: quit'
         )
-        if res != 'y':
+        if res not in ('y', 'm'):
             sys.exit(1)
+        if res == 'y' and isdir(dest_waveforms_path):
+            shutil.rmtree(dest_waveforms_path)
 
     if isfile(dest_metadata_path):
         os.unlink(dest_metadata_path)
@@ -362,10 +497,10 @@ def main():
 
     logging.info(f'Working directory: {abspath(os.getcwd())}')
     logging.info(f'Run command      : {" ".join([sys.executable] + sys.argv)}')
-    print(f"Source metadata path: {source_metadata_path}")
     print(f"Source waveforms path: {source_waveforms_path}")
+    print(f"Source metadata path:  {source_metadata_path}")
 
-    # Download and save locally
+    # Reading metadata fields dtypes and info:
     try:
         dest_metadata_fields_path = join(dest_root_path, 'metadata_fields.yml')
         metadata_fields = get_metadata_fields(dest_metadata_fields_path)
@@ -375,150 +510,142 @@ def main():
         print(exc, file=sys.stderr)
         sys.exit(1)
 
-    print(f'Scanning {source_metadata_path}')
-    min_itemsize = {}
-    max_rows = 0
-    with open(source_metadata_path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            max_rows += 1
-            for dest_col, src_col in id_columns.items():
-                val = row[src_col]
-                if val is not None:
-                    old_val = min_itemsize.get(dest_col, 0)
-                    min_itemsize[dest_col] = max(old_val, len(val))
+    print(f'Scanning source waveforms directory...', end=" ", flush=True)
+    files = scan_dir(source_waveforms_path)
+    print(f'{len(files):,} file(s) found')
 
-    print(f'Scanning {source_waveforms_path}')
-    files, num_files = scan_dir(source_waveforms_path)
-
-    print(f'Found {num_files} file(s) as time history candidates')
     pbar = tqdm(
-        total=max_rows,
+        total=len(files),
         bar_format="{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
                    "(estimated remaining time {remaining}s)"
     )
 
-    # output metadata to_hdf kwargs (fixed):
-    hdf_kwargs = {
-        'key': "metadata",  # table name
-        'mode': "a",  # (1st time creates a new file because we deleted it, see above)
-        'format': "table",  # required for appendable table
-        'append': True,  # first batch still uses append=True
-        'min_itemsize': min_itemsize,  # required for strings (used only the 1st time to_hdf is called)  # noqa
-        # 'data_columns': [],  # list of columns you need to query these later
-    }
-
-    print(f'Processing records in {source_metadata_path}')
-    rec_num = 0
+    print(f'Reading source metadata file...', end=" ", flush=True)
     csv_args = dict(source_metadata_csv_args)
     # csv_args.setdefault('chunksize', 10000)
+    csv_args.setdefault(
+        'usecols', csv_args.get('usecols', {}) | source_metadata_fields.keys()
+    )
+    metadata = pd.read_csv(source_metadata_path, **csv_args)
+    metadata = metadata.rename(
+        columns={k: v for k, v in source_metadata_fields.items() if v is not None}    # RHB1 and SITE_CLASSIFICATION_EC8  # FIXME DO!
+    )
+    old_len = len(metadata)
+    metadata = pre_process(metadata.dropna(subset=['event_id', 'station_id']))
+    if len(metadata) < old_len:
+        logging.warning(f'{old_len - len(metadata)} metadata row(s) '
+                        f'removed in pre-processing stage')
+    print(f'{len(metadata):,} record(s), {len(metadata.columns):,} field(s) per record, '
+          f'{old_len - len(metadata)} row(s) removed')
+
+    print(f'Creating harmonized dataset from source')
+    records = []
+    item_num = 0
     errs = 0
-    for metadata_chunk in pd.read_csv(source_metadata_path, **csv_args):
-        new_metadata = []
-        for record in metadata_chunk.to_dict(orient="records"):
+    while len(files):
+        num_files = 1
+        file = files.pop()
+        step_name = ""
 
-            rec_num += 1
-            metadata_row = f'metadata row #{rec_num}'
-            pbar.update(1)
+        try:
+            step_name = "find_related"
+            h1_path, h2_path, v_path, record = find_sources(file, metadata)
 
-            step_name = ""
-            components = {'h1': None, 'h2': None, 'v': None}
-            h1_path, h2_path, v_path = None, None, None
-            try:
-                step_name = "find_waveform_paths"
-                h1_path, h2_path, v_path = find_waveforms_path(record, files)
+            # checks:
+            if sum(_ is not None for _ in (h1_path, h2_path, v_path)) == 0:
+                raise Exception('No existing file found')
+            if not isinstance(record, pd.Series):
+                if isinstance(record, pd.DataFrame):
+                    raise Exception('Multiple metadata record found')
+                raise Exception('No metadata record found')
+            for _ in (h1_path, h2_path, v_path):
+                if _ in files:
+                    num_files += 1
+                    files.remove(_)
 
-                if (h1_path is None) and (h2_path is None) and (v_path is None):
-                    raise Exception('No waveform file')
+            comps = {}
+            for cmp_name, cmp_path in zip(('h1', 'h2', 'v'), (h1_path, h2_path, v_path)):
+                step_name = f"read_waveform ({cmp_name})"
+                comps[cmp_name] = None
+                if cmp_path and isfile(cmp_path):
+                    with open_file(cmp_path) as file_p:
+                        comps[cmp_name] = read_waveform(cmp_path, file_p, record)
 
-                for comp_name in components:
-                    step_name = f"read_waveform ({comp_name})"
-                    comp_path = {'h1': h1_path, 'h2': h2_path, 'v': v_path}[comp_name]
-                    if comp_path:
-                        components[comp_name] = read_waveform(comp_path, record)
+            if all(_ is None for _ in comps.values()):
+                raise Exception('No waveform read')
+            if len(set(_.dt for _ in comps.values() if _ is not None)) != 1:
+                raise Exception('Waveform components have mismatching dt')
 
-                if all(_ is None for _ in components.values()):
-                    raise Exception('No waveform read')
-                # elif any(_ is None for _ in components.values()):
-                #     logging.warning(
-                #         f"[WARN] {metadata_row}: only "
-                #         f"{sum(_ is not None for _ in components.values())} "
-                #         f"of 3 components created and saved"
-                #     )
+            # process waveforms
+            step_name = "save_waveforms"  # noqa
+            h1, h2, v = comps.get('h1'), comps.get('h2'), comps.get('v')
+            # old_record = dict(record)  # for testing purposes
+            new_record, h1, h2, v = post_process(record, h1, h2, v)
 
-                # process waveforms
-                step_name = "save_waveforms"  # noqa
-                # old_record = dict(record)  # for testing purposes
-                new_record, h1, h2, v = process_waveforms(
-                    record,
-                    components.get('h1'),
-                    components.get('h2'),
-                    components.get('v')
-                )
-                # check record data types:
-                clean_record = {'id': rec_num}
-                for f in new_record.keys():
-                    default_val = metadata_fields[f].get('default')
-                    val = new_record.get(f, default_val)
-                    step_name = f"_cast_dtype (field '{f}')"
-                    dtype = metadata_fields[f]['dtype']
-                    try:
-                        clean_record[f] = cast_dtype(val, dtype)
-                    except AssertionError:
-                        raise AssertionError(f'Invalid value for "{f}": {str(val)}')
+            # check record data types:
+            item_num += 1
+            clean_record = {'id': item_num}
+            for f in new_record.keys():
+                if f not in metadata_fields:
+                    continue
+                default_val = metadata_fields[f].get('default')
+                val = new_record.get(f, default_val)
+                step_name = f"_cast_dtype (field '{f}')"
+                dtype = metadata_fields[f]['dtype']
+                try:
+                    clean_record[f] = cast_dtype(val, dtype)
+                except AssertionError:
+                    raise AssertionError(f'Invalid value for "{f}": {str(val)}')
 
-                # final checks:
-                check_final_metadata(clean_record, h1, h2)
+            # final checks:
+            check_final_metadata(clean_record, h1, h2)
 
-                # finalize clean_record:
-                avail_comps, sampling_rate = \
-                    finalize_metadata(clean_record, h1, h2, v)
-                clean_record['available_components'] = avail_comps
-                clean_record['sampling_rate'] = sampling_rate if \
-                    pd.notna(sampling_rate) else \
-                    int(metadata_fields['sampling_rate']['default'])
+            # finalize clean_record:
+            avail_comps, sampling_rate = extract_metadata_from_waveforms(h1, h2, v)
+            clean_record['available_components'] = avail_comps
+            clean_record['sampling_rate'] = sampling_rate if \
+                pd.notna(sampling_rate) else \
+                int(metadata_fields['sampling_rate']['default'])
 
-                # append metadata:
-                new_metadata.append(clean_record)
+            # save metadata:
+            step_name = "save_metadata"  # noqa
+            records.append(clean_record)
+            if len(records) > 1000:
+                save_metadata(dest_metadata_path, pd.DataFrame(records), metadata_fields)
+                records = []
 
-                # save waveforms
-                step_name = "save_waveforms"  # noqa
-                file_path = join(dest_waveforms_path, get_file_path(clean_record))
+            # save waveforms
+            step_name = "save_waveforms"  # noqa
+            file_path = join(dest_waveforms_path, get_file_path(clean_record))
+            if not isfile(file_path):
                 save_waveforms(file_path, h1, h2, v)
 
-            except Exception as exc:
-                logging.error(
-                    f"[ERROR] {metadata_row}: {exc} | Step: `{step_name}` | "
-                    f"h1_path : {h1_path or 'N/A'} | h2_path : {h2_path or 'N/A'}"
-                )
-                errs += 1
-                continue
-
-            if rec_num / max_rows > (1 - min_waveforms_ok_ratio):
-                # we processed enough data (1 - waveforms_ok_ratio)
-                ok_ratio = (1 - errs / max_rows)
-                if ok_ratio < min_waveforms_ok_ratio:
-                    # the processed data error ratio is too high:
-                    msg = f'Too many errors ({errs} of {max_rows} records)'
-                    print(msg, file=sys.stderr)
-                    logging.error(msg)
-                    sys.exit(1)
-
-        if new_metadata:
-            # save metadata:
-            new_metadata_df = pd.DataFrame(new_metadata)
-            for col in new_metadata_df.columns:
-                new_metadata_df[col] = cast_dtypes(
-                    new_metadata_df[col],
-                    metadata_fields[col]['dtype']
+        except Exception as exc:
+            logging.error(
+                f"[ERROR] {file}: {exc} | Step: `{step_name}`"
             )
-            new_metadata_df.to_hdf(dest_metadata_path, **hdf_kwargs)
+            errs += 1
+        finally:
+            pbar.update(num_files)
+
+        if pbar.n / pbar.total > (1 - min_waveforms_ok_ratio):
+            # we processed enough data (1 - waveforms_ok_ratio)
+            ok_ratio = 1 - (errs / pbar.total)
+            if ok_ratio < min_waveforms_ok_ratio:
+                # the processed data error ratio is too high:
+                msg = f'Too many errors ({errs} of {pbar.total} records)'
+                print(msg, file=sys.stderr)
+                logging.error(msg)
+                sys.exit(1)
 
     if isfile(dest_metadata_path):
+        if len(records):
+            save_metadata(dest_metadata_path, pd.DataFrame(records), metadata_fields)
         os.chmod(
             dest_metadata_path,
             os.stat(dest_metadata_path).st_mode | stat.S_IRGRP | stat.S_IROTH
         )
+
     pbar.close()
     sys.exit(0)
 
@@ -551,20 +678,51 @@ def setup_logging(filename):
     logger.setLevel(logging.INFO)
 
 
-def scan_dir(source_root_dir) -> tuple[dict[str, Union[dict, str]], int]:
-    """Scan the given directory"""
-    tree = {}
-    num_files = 0
+def scan_dir(source_root_dir) -> set[str]:
+    """Scan the given directory. Zip files are opened and treated as directories
+    Use open_file to open any returned file path
+    """
+    files = set()
     for entry in os.scandir(source_root_dir):
         if entry.is_dir():
-            tree[entry.name], _ = scan_dir(entry.path)
-            num_files += _
-        else:
-            file = abspath(entry.path)
-            if accept_file(file):
-                tree[entry.name] = file
-                num_files += 1
-    return tree, num_files
+            files.update(scan_dir(entry.path))
+            continue
+        file_path = abspath(entry.path)
+        if accept_file(file_path):
+            files.add(file_path)
+        elif splitext(entry.name)[1].lower() == '.zip':
+            with zipfile.ZipFile(file_path, 'r') as z:
+                for name in z.namelist():
+                    file_path2 = join(file_path, name)
+                    if accept_file(file_path2):
+                        files.add(file_path2)
+    return files
+
+
+def open_file(file_path) -> BytesIO:
+    """
+    Open a regular file or a file inside a .zip archive. file_path is any item
+    returned by `scan_dir`
+    """
+    fp_lower = file_path.lower()
+    if f".zip{os.sep}" in fp_lower:
+        idx = fp_lower.index(".zip")
+        zip_path, inner_path = file_path[:idx + 4], file_path[idx + 5:]
+        with zipfile.ZipFile(zip_path, "r") as z:
+            data = z.read(inner_path)
+    elif fp_lower.endswith(".zip"):
+        zip_path = file_path
+        with zipfile.ZipFile(zip_path, "r") as z:
+            namelist = z.namelist()
+            if len(namelist) != 1:
+                raise ValueError(
+                    f"{file_path} contains {len(namelist)} files, expected one only")
+            data = z.read(namelist[0])
+    else:
+        with open(file_path, "rb") as f:
+            data = f.read()
+
+    return BytesIO(data)
 
 
 def get_metadata_fields(dest_path):
@@ -589,20 +747,6 @@ def get_metadata_fields(dest_path):
     return metadata_fields
 
 
-def read_wafevorms(file_path):
-    """Reads the file path previously saved. NOT USED, HERE ONLY FOR REF"""
-    with h5py.File(file_path, "r") as f:
-        h1_data = f["h1"][:] if "h1" in f else np.array([])
-        h1_dt = f["h1"].attrs["dt"] if "h1" in f else None
-
-        h2_data = f["h2"][:] if "h2" in f else np.array([])
-        h2_dt = f["h2"].attrs["dt"] if "h2" in f else None
-
-        v_data = f["v"][:] if "v" in f else np.array([])
-        v_dt = f["v"].attrs["dt"] if "v" in f else None
-    return (h1_dt, h1_data), (h2_dt, h2_data), (v_dt, v_data)
-
-
 def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
     if dtype == 'int':
         assert isinstance(val, int) or (isinstance(val, float) and int(val) == val)
@@ -625,55 +769,6 @@ def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
     return val
 
 
-def save_waveforms(
-        file_path,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]],
-        v: Optional[tuple[float, ndarray]]
-):
-    if not isdir(dirname(file_path)):
-        os.makedirs(dirname(file_path))
-
-    with h5py.File(file_path, "w") as f:
-        # Save existing components
-        if h1 is not None:
-            f.create_dataset("h1", data=h1[1])
-            f["h1"].attrs["dt"] = h1[0]
-
-        if h2 is not None:
-            f.create_dataset("h2", data=h2[1])
-            f["h2"].attrs["dt"] = h2[0]
-
-        if v is not None:
-            f.create_dataset("v", data=v[1])
-            f["v"].attrs["dt"] = v[0]
-
-    # Add read permission for group (stat.S_IRGRP) and others (stat.S_IROTH).
-    if isfile(file_path):
-        os.chmod(file_path, os.stat(file_path).st_mode | stat.S_IRGRP | stat.S_IROTH)
-
-
-def cast_dtypes(values: Any, dtype: Union[str, pd.CategoricalDtype]):
-    """
-    Cast the values of the output metadata. Safety method (each value in `values` is
-    the outcome of `cast_dtype` so it should be of the correct dtype already)
-    """
-    if dtype == 'int':
-        # assert pd.notna(values).all()
-        return values.astype(int)
-    elif dtype == 'bool':
-        return values.astype(bool)
-    elif dtype == 'datetime':
-        return pd.to_datetime(values, errors='coerce')
-    elif dtype == 'str':
-        return values.astype(str)
-    elif dtype == 'float':
-        return values.astype(float)
-    elif isinstance(dtype, pd.CategoricalDtype):
-        return values.astype(dtype)
-    raise AssertionError(f'Unrecognized dtype {dtype}')
-
-
 def get_file_path(metadata: dict):
     """Return the file (relative) path from the given metadata
     (record metadata already cleaned)"""
@@ -683,20 +778,16 @@ def get_file_path(metadata: dict):
     )
 
 
-def check_final_metadata(
-        metadata: dict,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]]
-):
+def check_final_metadata(metadata: dict, h1: Optional[Waveform], h2: Optional[Waveform]):
 
     pga = metadata['PGA']
     pga_c = None
     if h1 is not None and h2 is not None:
-        pga_c = np.sqrt(np.max(np.abs(h1[1])) * np.max(np.abs(h2[1])))
+        pga_c = np.sqrt(np.max(np.abs(h1.data)) * np.max(np.abs(h2.data)))
     elif h1 is not None and h2 is None:
-        pga_c = np.max(np.abs(h1[1]))
+        pga_c = np.max(np.abs(h1.data))
     elif h1 is None and h2 is not None:
-        pga_c = np.max(np.abs(h2[1]))
+        pga_c = np.max(np.abs(h2.data))
     if pga_c is not None:
         rtol = pga_retol
         assert np.isclose(pga_c, pga, rtol=rtol, atol=0), \
@@ -715,35 +806,144 @@ def check_final_metadata(
             assert val_after > val_before, f"{t_after} must happen after {t_before}"
 
 
-def finalize_metadata(
-        metadata: dict,
-        h1: Optional[tuple[float, ndarray]],
-        h2: Optional[tuple[float, ndarray]],
-        v: Optional[tuple[float, ndarray]]
+def extract_metadata_from_waveforms(
+        h1: Optional[Waveform],
+        h2: Optional[Waveform],
+        v: Optional[Waveform]
 ) -> tuple[Optional[str], Optional[int]]:
-    avail_components = (h1 is not None, h2 is not None, v is not None)
     dt = None
-    avail_comps = None
-    if avail_components == (False, False, True):
-        avail_comps = 'V'
-        dt = v[0]
-    elif avail_components == (True, False, False):
-        avail_comps = 'H'
-        dt = h1[0]
-    elif avail_components == (False, True, False):
-        avail_comps = 'H'
-        dt = h2[0]
-    elif avail_components == (True, True, False):
-        avail_comps = 'HH'
-        dt = h1[0] if h1[0] == h2[0] else None
-    elif avail_components == (True, True, True):
-        avail_comps = 'HHV'
-        dt = h1[0] if h1[0] == h2[0] == v[0] else None
+    avail_comps = ''
+    for comp, avail_comp_str in zip((h1, h2, v), ('H', 'H', 'V')):
+        if comp is None:
+            continue
+        if avail_comps == '':  # first non null component
+            dt = comp.dt
+        elif comp.dt != dt:
+            dt = None
+        avail_comps += avail_comp_str
 
-    sampling_rate = None
-    if dt is not None:
-        sampling_rate = int(1./dt) if int(1./dt) == float(1./dt) else None
+    sampling_rate = int(1./dt) if dt is not None and int(1./dt) == 1./dt else None
     return avail_comps, sampling_rate
+
+
+def save_metadata(dest_metadata_path: str, metadata: pd.DataFrame, metadata_fields):
+    if metadata is not None and not metadata.empty:
+        # save metadata:
+        new_metadata_df = pd.DataFrame(metadata)
+        new_metadata_df = new_metadata_df[
+            [c for c in new_metadata_df if c in metadata_fields]
+        ].copy()
+        for col in metadata_fields:
+            new_metadata_df[col] = cast_dtypes(
+                metadata_fields[col]['dtype'],
+                metadata_fields[col].get('default'),
+                new_metadata_df.get(col),
+                new_metadata_df
+            )
+        hdf_kwargs = {
+            'key': "metadata",  # table name
+            'mode': "a",
+            # (1st time creates a new file because we deleted it, see above)
+            'format': "table",  # required for appendable table
+            'append': True,  # first batch still uses append=True
+            # 'min_itemsize': {
+            #     'event_id': metadata["event_id"].str.len,
+            #     'station_id': metadata["station_id"].str.len,
+            # },  # required for strings (used only the 1st time to_hdf is called)  # noqa
+            # 'data_columns': [],  # list of columns you need to query these later
+        }
+        new_metadata_df.to_hdf(dest_metadata_path, **hdf_kwargs)
+
+
+def cast_dtypes(
+        dtype: Union[str, pd.CategoricalDtype],
+        default_value: Any,
+        dataframe_column: str,
+        dataframe: pd.DataFrame
+):
+    """
+    Cast the values of the output metadata. Safety method (each value in `values` is
+    the outcome of `cast_dtype` so it should be of the correct dtype already)
+    """
+    values = dataframe.get(dataframe_column)
+    if dtype == 'int':
+        if values is None:
+            values = [default_value] * len(dataframe)
+        # assert pd.notna(values).all()
+        return values.astype(int)
+    elif dtype == 'bool':
+        if values is None:
+            values = [default_value] * len(dataframe)
+        return values.astype(bool)
+    elif dtype == 'datetime':
+        if values is None:
+            if pd.isna(default_value):
+                default_value = pd.NaT
+            values = [default_value] * len(dataframe)
+        return pd.to_datetime(values, errors='coerce')
+    elif dtype == 'str':
+        if values is None:
+            if pd.isna(default_value):
+                default_value = None
+            values = [default_value] * len(dataframe)
+        return values.astype(str)
+    elif dtype == 'float':
+        if values is None:
+            if pd.isna(default_value):
+                default_value = np.nan
+            values = [default_value] * len(dataframe)
+        return values.astype(float)
+    elif isinstance(dtype, pd.CategoricalDtype):
+        if values is None:
+            if pd.isna(default_value):
+                default_value = None
+            values = [default_value] * len(dataframe)
+        else:
+            cat_values = set(dtype.categories)  # allowed categories
+            invalid = set(values.dropna()) - cat_values  # invalid, non-NA values
+            if invalid:
+                raise AssertionError(
+                    f'Unrecognized categories in {dataframe_column}: {invalid}'
+                )
+        return values.astype(dtype)
+    raise AssertionError(f'Unrecognized dtype {dtype}')
+
+
+def save_waveforms(
+        file_path, h1: Optional[Waveform], h2: Optional[Waveform], v: Optional[Waveform]
+):
+    if not isdir(dirname(file_path)):
+        os.makedirs(dirname(file_path))
+
+    dts = {x.dt for x in (h1, h2, v) if x is not None}
+    assert len(dts), "No waveform to save"  # safety check
+    data_has_samples = {len(x.data) for x in (h1, h2, v) if x is not None}
+    assert all(data_has_samples), "Cannot save empty waveform(s)"
+
+    assert len(dts) == 1, "Non-unique dt in waveforms"
+    dt = dts.pop() if dts else None
+
+    empty = np.array([])
+    with h5py.File(file_path, "w") as f:
+        # Save existing components
+        f.create_dataset("h1", data=empty if h1 is None else h1.data)
+        f.create_dataset("h2", data=empty if h2 is None else h2.data)
+        f.create_dataset("v", data=empty if v is None else v.data)
+        f.attrs["dt"] = dt
+
+    # Add read permission for group (stat.S_IRGRP) and others (stat.S_IROTH).
+    if isfile(file_path):
+        os.chmod(file_path, os.stat(file_path).st_mode | stat.S_IRGRP | stat.S_IROTH)
+
+
+def read_wafevorms(file_path) -> (float, np.ndarray, np.ndarray, np.ndarray):
+    """Reads the file path previously saved. NOT USED, HERE ONLY FOR REF"""
+    with h5py.File(file_path, "r") as f:
+        dt = f.attrs["dt"]
+        h1 = f['h1'][:]
+        h2 = f['h2'][:]
+        v = f['v'][:]
+    return dt, h1, h2, v
 
 
 if __name__ == "__main__":
