@@ -1,6 +1,6 @@
 """
-Python script for the generation of a Time histories' database.
-To create a new database routine, copy/rename this file and modify the editable
+Python script for the generation of a Time histories database.
+To create a new database, copy/rename this file and modify the editable
 part of this module. See instructions below and README.md fir details
 """
 from __future__ import annotations
