@@ -1,33 +1,7 @@
 """
-Template for the generation of a Time histories' database. Steps for the generation
-are reported in the README file and here below,
-**but please refer to the README for the most up-to-date source**.
-
-Copy create_dataset.py as well as metadata_fields.yml in a empty directory
-
-Edit your source metadata file (CSV format) to match the field names in
-metadata_fields.yml. You can also start from metadata_template.csv as empty template,
-leaving empty cells if data is N/A or missing, or you plan to fill it inside
-create_dataset.py
-
-Edit create_dataset.py
-
-3a. Set the path of the source metadata file (variable source_metadata_path)
-
-3b. Implement how to read time histories from the metadata file rows
-    (functions get_waveforms_path and read_waveform)
-
-3c. Implement how to process time histories and potentially modify the associated CSV row
-    (function process_waveforms)
-
-Eventually, execute create_dataset.py file on the terminal within the Python virtual
-environment (or Conda env):
-
-python3 create_dataset.py
-
-The file will scan all rows of your source metadata file, process them and put them in
-the waveforms subdirectory of the root directory of create_dataset.py.
-A new metadata file metadata.csv will be also created in the same directory
+Python script for the generation of a Time histories' database.
+To create a new database routine, copy/rename this file and modify the editable
+part of this module. See instructions below and README.md fir details
 """
 from __future__ import annotations
 
