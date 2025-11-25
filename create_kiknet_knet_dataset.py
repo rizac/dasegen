@@ -26,7 +26,6 @@ from datetime import datetime, timedelta, date
 import pandas as pd
 import numpy as np
 import glob
-# from obspy import read
 from io import BytesIO
 import math
 from tqdm import tqdm
