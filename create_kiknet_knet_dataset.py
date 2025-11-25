@@ -139,7 +139,11 @@ source_metadata_fields = {
 
 
 def accept_file(file_path) -> bool:
-    """Tell whether the given source file can be accepted as time history file"""
+    """Tell whether the given source file can be accepted as waveform file
+
+    :param file_path: the scanned file absolute path (it can also be a file within a zip
+        file, in that case the parent directory name is the zip file name)
+    """
     return splitext(file_path)[1] in {
         '.UD1', '.NS1', '.EW1', '.UD2', '.NS2', '.EW2', '.UD', '.NS', '.EW'
     }  # with *1 => borehole
@@ -148,10 +152,12 @@ def accept_file(file_path) -> bool:
 def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
     """Pre-process the metadata Dataframe. This is usually the place where the given
     dataframe is setup in order to easily find records from file names, or optimize
-    some columns data (e.g. categorical from string).
+    some column data (e.g. convert strings to categorical).
 
-    :param metadata: the metadata DataFrame. The dataframe columns present in
-        `source_metadata_fields` are already renamed at this stage
+    :param metadata: the metadata DataFrame. The DataFrame columns come from the global
+        `source_metadata_fields` dict, using each value if not None, otherwise its key.
+
+    :return: a pandas DataFrame optionally modified from `metadata`
     """
     metadata['event_id'] = metadata['event_id'].astype('category')
     metadata['station_id'] = metadata['station_id'].astype('category')
@@ -163,10 +169,15 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
         -> tuple[Optional[str], Optional[str], Optional[str], Optional[pd.Series]]:
     """Find the file paths of the three waveform components, and their metadata
 
-    :param file_path: the waveform path currently processed. Most likely, this is one of
-        the three returned waveform paths, adn the other two are inferred from it
+    :param file_path: the waveform path currently processed. it is one of the files
+        accepted via `accept_file` and it should denote one of the three waveform
+        components (the other two should be inferred from it)
     :param metadata: the Metadata dataframe. The returned waveforms metadata must be one
-        row of this object as pandas Series, any other object will raise
+        row of this object as pandas Series (any other object will raise)
+
+    :return: A tuple with three strings denoting the file absolute paths of the three
+        components (horizontal1, horizontal2, vertical, in **this order** and the
+        pandas Series denoting the waveforms metadata (common to the three components)
     """
     root, ext = splitext(file_path)
     if ext == '.EW':  # knet
@@ -212,73 +223,19 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
     return paths + (record, )
 
 
-# def find_waveforms_path(
-#         metadata: dict,
-#         waveform_file_paths: dict[str, Union[dict, str]]
-# ) -> tuple[Optional[str], Optional[str], Optional[str]]:
-#     """Get the full source paths of the waveforms (h1, h2 and v components, in this
-#     order) from the given row of your source metadata.
-#     Paths can be empty or None, meaning that the relative file is missing. This has to
-#     be taken into account in `process_waveforms` in case (see below). If files are not
-#     missing, then the file must exist
-#
-#     :param metadata: Python dict, corresponding to a row of your source metadata table.
-#         Each dict key represents a Metadata Field (Column). Note that float, str,
-#         datetime and categorical values can also be None (e.g., if the Metadata cell
-#         was empty)
-#     :param waveform_file_paths: dict of string denoting the scanned time histories
-#         source directory. It is a dict of strings denoting directory names or file names.
-#         If directory names, the mapped value is a nested dict with the same structure,
-#         otherwise it is the file absolute path
-#     """
-#     file_h1 = []
-#     file_h2 = []
-#     file_v = []
-#
-#     st_id = metadata['StationCode']
-#     orig_time = metadata['RecordTime']
-#     # Format as YYMMDDHHMMSS
-#     if isinstance(orig_time, str):
-#         orig_time = datetime.fromisoformat(orig_time)
-#     orig_time_str = orig_time.strftime("%y%m%d%H%M")
-#     name = f'{st_id}{orig_time_str}'
-#
-#     eq_code = str(metadata['EQ_Code'])
-#
-#     for dir_name in ['knet', 'kik']:
-#         dir_name = waveform_file_paths[dir_name]
-#         subdir_name1 = eq_code[:4]
-#         subdir_name2 = str(int(eq_code[4:6]))
-#         try:
-#             dir_name = dir_name[subdir_name1][subdir_name2][eq_code]
-#         except KeyError:
-#             continue
-#
-#         for file_abs_path in dir_name.values():  # noqa
-#             bname = basename(file_abs_path)
-#             if not bname.startswith(name):
-#                 continue
-#             ext = splitext(bname)[1]
-#             if ext in ('.EW', '.EW2'):  # see note above
-#                 file_h1.append(file_abs_path)
-#                 continue
-#             if ext in ('.NS', '.NS2'):  # see note above
-#                 file_h2.append(file_abs_path)
-#                 continue
-#             if ext in ('.UD', '.UD2'):  # UD1: borehole
-#                 file_v.append(file_abs_path)
-#                 continue
-#
-#     return (
-#         file_h1[0] if len(file_h1) == 1 else None,
-#         file_h2[0] if len(file_h2) == 1 else None,
-#         file_v[0] if len(file_v) == 1 else None
-#     )
+def read_waveform(file_path: str, content: BytesIO, metadata: pd.Series) -> Waveform:
+    """Read a waveform from a file path
 
+    :param file_path: the waveform path currently processed. It is one of the files
+        accepted via `accept_file` and it should denote one of the three waveform
+        components. You do not need to open the file here (see `content` parameter)
+    :param content: a BytesIO (file-like) object with the content of file_path, as byte
+        sequence
+    :param metadata: the pandas Series related to the given file, as returned from
+        `find_sources`
 
-def read_waveform(full_abs_path: str, content: BytesIO, metadata: pd.Series) -> Waveform:
-    """Read a waveform from a file path. Modify according to the format you stored
-    your time histories"""
+    :return: a `Waveform` object
+    """
     scale_nom, scale_denom, dt = None, None, None
     for line in content:
         if line.startswith(b'Sampling Freq(Hz)'):
@@ -310,30 +267,20 @@ def post_process(
     Optional[Waveform],
     Optional[Waveform]
 ]:
-    """Process the waveform(s), returning the same argument modified according to your
-    custom processing routine: a new metadata dict, and three obspy Traces denoting the
-    processed two horizontal and vertical components, respectively.
+    """
+    Custom post-processing on the metadata and waveforms read from disk.
+    Typically, you complete metadata and waveforms, e.g. filling the former with missing
+    fields, or converting the latter to the desired units (m/sec*sec, m/sec, m).
+    **Remember** that Waveform objects are IMMUTABLE, so you need to return new
+    Waveform object if modified
 
-    The metadata  dict can be built from `metadata_row` or from scratch, it must
-    include all fields defined in `metadata_fields.yml`. fpath* fields might be renamed
-    to supply the destination path of the traces, relative to the CSV file. Other fields
-    must be input with the correct data type: note that float, str, datetime and
-    categorical fields can be filled with None to indicate that the corresponding value
-    is missing or unknown.
-
-    For time histories, please remember to provide waveforms in standard units
-    (m/sec*sec, m/sec, m) and consistent with the value of of 'sensor_type' in the
-    returned metadata dict ('A', 'V', 'D'). Remember that, depending on your use-case,
-    some Traces might be None.
-
-    :param metadata: Python dict, corresponding to a row of your source metadata table.
-        Each dict key represents a Metadata Field (Column). Note that float, str,
-        datetime and categorical values can also be None (e.g., if the Metadata cell
-        was empty)
-    :param h1: first horizontal component, as tuple(dt:float, data:numeric_array),
-        or None (no Trace)
-    :param h2: second horizontal component, same format as h1
-    :param v: vertical component, same format as h1
+    :param metadata: the pandas Series related to the given file, as returned from
+        `find_sources`. Non-standard fields do not need to be removed, missing standard
+        fields will be filled with defaults (NaN, None or anything implemented in
+        `metadata_fields.yml`)
+    :param h1: the Waveform of the first horizontal component, or None (waveform N/A)
+    :param h1: the Waveform of the second horizontal component, or None (waveform N/A)
+    :param h1: the Waveform of the vertical component, or None (waveform N/A)
     """
     orig_meta, metadata = metadata, metadata.copy()
     metadata['origin_time'] = datetime.fromisoformat(metadata["origin_time"])
@@ -373,98 +320,13 @@ def post_process(
     return metadata, h1, h2, v
 
 
-
-    # origin_time = datetime.fromisoformat(metadata["Origin_Meta"])
-    # start_time = datetime.strptime(str(metadata['new_record_start_UTC']),
-    #                                "%Y%m%d%H%M%S")
-    # p_time = datetime.strptime(str(metadata['tP_JMA']), "%Y%m%d%H%M%S")
-    # s_time = datetime.strptime(str(metadata['tS_JMA']), "%Y%m%d%H%M%S")
-    # # use datetimes also for event_date (for simplicity when casting later):
-    # origin_date = origin_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    #
-    # # pga check
-    # pga1 = metadata['PGA_EW']
-    # pga2 = metadata['PGA_NS']
-    # pga = metadata['PGA_rotd50']
-    #
-    # new_metadata = {
-    #     'event_id': metadata['EQ_Code'],
-    #     # 'azimuth': metadata.get(54),
-    #     'epicentral_distance': metadata["Repi"],
-    #     'hypocentral_distance': metadata["Rhypo"],
-    #     'joyner_boore_distance': pd.Series([metadata["RJB_0"], metadata["RJB_1"]]).mean(),  # noqa
-    #     'rupture_distance': pd.Series([metadata["Rrup_0"], metadata["Rrup_1"]]).mean(),
-    #     # 'fault_normal_distance': None,
-    #     'origin_time': origin_time,
-    #     'origin_date': origin_date,
-    #     'event_latitude': metadata["evLat._Meta"],
-    #     'event_longitude': metadata["evLong._Meta"],
-    #     'event_depth': metadata["Depth. (km)_Meta"],
-    #     'magnitude': metadata["Mag._Meta"],
-    #     'magnitude_type': metadata["JMA_Magtype"],
-    #     # 'depth_to_top_of_fault_rupture': None
-    #     # 'fault_rupture_width': None,
-    #     'strike': metadata["fnet_Strike_0"],
-    #     'dip': metadata["fnet_Dip_0"],
-    #     'rake': metadata["fnet_Rake_0"],
-    #     'strike2': metadata["fnet_Strike_1"],
-    #     'dip2': metadata["fnet_Dip_1"],
-    #     'rake2': metadata["fnet_Rake_1"],
-    #     'fault_type': {
-    #         'S': 'Strike-Slip',
-    #         'N': 'Normal',
-    #         'R': 'Reverse'
-    #     }.get(metadata["Focal_mechanism_BA"]),
-    #
-    #     'station_id': metadata["StationCode"],
-    #     "vs30": metadata["vs30"],
-    #     "vs30measured": metadata["vs30measured"] in {1, "1", 1.0},
-    #     "station_latitude": metadata['StationLat.'],
-    #     "station_longitude": metadata['StationLong.'],
-    #     "z1": metadata["z1"],
-    #     "z2pt5": metadata["z2pt5"],
-    #     "region": 0,
-    #
-    #     # "sensor_type": 'A',
-    #     "filter_type": "A",
-    #     "npass": 0,
-    #     "nroll": 0,
-    #     "lower_cutoff_frequency_h1": metadata["fc0"],  # FIXME CHECK THIS  hp_h1
-    #     "lower_cutoff_frequency_h2": metadata["fc0"],
-    #     "upper_cutoff_frequency_h1": metadata["fc1"],
-    #     "upper_cutoff_frequency_h2": metadata["fc1"],
-    #     "lowest_usable_frequency_h1": metadata["fc0"],
-    #     "lowest_usable_frequency_h2": metadata["fc1"],  # if not sure, leave None
-    #     'start_time': start_time,
-    #     'p_wave_arrival_time': p_time,
-    #     's_wave_arrival_time': s_time,
-    #     'PGA': pga
-    #
-    # }
-    #
-    # # correct missing values:
-    # new_metadata['magnitude_type'] = {
-    #     'J': 'MJ',  # JMA magnitude
-    #     'D': 'MD',  # JMA displacement magnitude
-    #     'd': 'Md',  # JMA displacement magnitude, but for two stations
-    #     'V': 'MV',  # JMA velocity magnitude
-    #     'v': 'Mv',  # JMA velocity magnitude, but for two or three stations
-    #     'W': 'Mw',  # Moment magnitude
-    #     'B': 'mb',  # Body wave magnitude from USGS
-    #     'S': 'Ms',  # Surface wave magnitude from USGS
-    # }.get(new_metadata['magnitude_type'], None)
-    #
-    # # simply return the arguments (no processing by default):
-    # return new_metadata, h1, h2, v
-
-
 ###########################################
 # The code below should not be customized #
 ###########################################
 
 
-def main():
-
+def main():  # noqa
+    """main processing routine called from the command line"""
     try:
         source_metadata_path, source_waveforms_path, dest_root_path = \
             read_script_args(sys.argv)
@@ -550,10 +412,8 @@ def main():
     while len(files):
         num_files = 1
         file = files.pop()
-        step_name = ""
 
         try:
-            step_name = "find_related"
             h1_path, h2_path, v_path, record = find_sources(file, metadata)
 
             # checks:
@@ -570,7 +430,6 @@ def main():
 
             comps = {}
             for cmp_name, cmp_path in zip(('h1', 'h2', 'v'), (h1_path, h2_path, v_path)):
-                step_name = f"read_waveform ({cmp_name})"
                 comps[cmp_name] = None
                 if cmp_path and isfile(cmp_path):
                     with open_file(cmp_path) as file_p:
@@ -582,7 +441,6 @@ def main():
                 raise Exception('Waveform components have mismatching dt')
 
             # process waveforms
-            step_name = "save_waveforms"  # noqa
             h1, h2, v = comps.get('h1'), comps.get('h2'), comps.get('v')
             # old_record = dict(record)  # for testing purposes
             new_record, h1, h2, v = post_process(record, h1, h2, v)
@@ -595,7 +453,6 @@ def main():
                     continue
                 default_val = metadata_fields[f].get('default')
                 val = new_record.get(f, default_val)
-                step_name = f"_cast_dtype (field '{f}')"
                 dtype = metadata_fields[f]['dtype']
                 try:
                     clean_record[f] = cast_dtype(val, dtype)
@@ -613,22 +470,19 @@ def main():
                 int(metadata_fields['sampling_rate']['default'])
 
             # save metadata:
-            step_name = "save_metadata"  # noqa
             records.append(clean_record)
             if len(records) > 1000:
                 save_metadata(dest_metadata_path, pd.DataFrame(records), metadata_fields)
                 records = []
 
             # save waveforms
-            step_name = "save_waveforms"  # noqa
             file_path = join(dest_waveforms_path, get_file_path(clean_record))
             if not isfile(file_path):
                 save_waveforms(file_path, h1, h2, v)
 
         except Exception as exc:
-            logging.error(
-                f"[ERROR] {file}: {exc} | Step: `{step_name}`"
-            )
+            fname, lineno = exc_func_and_lineno(exc, __file__)
+            logging.error(f"[ERROR] {exc}. In '{fname}', line {lineno}")
             errs += 1
         finally:
             pbar.update(num_files)
@@ -949,6 +803,30 @@ def read_wafevorms(file_path) -> (float, np.ndarray, np.ndarray, np.ndarray):
         h2 = f['h2'][:]
         v = f['v'][:]
     return dt, h1, h2, v
+
+
+def exc_func_and_lineno(exc, module_path: str = __file__) -> tuple[str, int]:
+    """
+    Return the innermost function name and line number within `__file__`
+    that raised `exc`
+    """
+    tb = exc.__traceback__
+    deepest = None
+
+    while tb:
+        frame = tb.tb_frame
+        filename = frame.f_code.co_filename
+
+        if os.path.samefile(filename, module_path):
+            deepest = frame
+
+        tb = tb.tb_next
+
+    # fallback to outermost frame if none found
+    if deepest is None:
+        deepest = exc.__traceback__.tb_frame
+
+    return deepest.f_code.co_name, deepest.f_lineno
 
 
 if __name__ == "__main__":
