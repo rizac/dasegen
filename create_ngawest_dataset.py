@@ -241,8 +241,8 @@ def post_process(
         fields will be filled with defaults (NaN, None or anything implemented in
         `metadata_fields.yml`)
     :param h1: the Waveform of the first horizontal component, or None (waveform N/A)
-    :param h1: the Waveform of the second horizontal component, or None (waveform N/A)
-    :param h1: the Waveform of the vertical component, or None (waveform N/A)
+    :param h2: the Waveform of the second horizontal component, or None (waveform N/A)
+    :param v: the Waveform of the vertical component, or None (waveform N/A)
     """
     # convert time(s):
     year = metadata['YEAR']
