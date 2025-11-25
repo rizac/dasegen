@@ -1,33 +1,7 @@
 """
-Template for the generation of a Time histories' database. Steps for the generation
-are reported in the README file and here below,
-**but please refer to the README for the most up-to-date source**.
-
-Copy create_dataset.py as well as metadata_fields.yml in a empty directory
-
-Edit your source metadata file (CSV format) to match the field names in
-metadata_fields.yml. You can also start from metadata_template.csv as empty template,
-leaving empty cells if data is N/A or missing, or you plan to fill it inside
-create_dataset.py
-
-Edit create_dataset.py
-
-3a. Set the path of the source metadata file (variable source_metadata_path)
-
-3b. Implement how to read time histories from the metadata file rows
-    (functions get_waveforms_path and read_waveform)
-
-3c. Implement how to process time histories and potentially modify the associated CSV row
-    (function process_waveforms)
-
-Eventually, execute create_dataset.py file on the terminal within the Python virtual
-environment (or Conda env):
-
-python3 create_dataset.py
-
-The file will scan all rows of your source metadata file, process them and put them in
-the waveforms subdirectory of the root directory of create_dataset.py.
-A new metadata file metadata.csv will be also created in the same directory
+Python script for the generation of a Time histories database.
+To create a new database, copy/rename this file and modify the editable
+part of this module. See instructions below and README.md fir details
 """
 from __future__ import annotations
 
@@ -81,78 +55,174 @@ pga_retol = 1/4
 
 # csv arguments for source metadata (e/g. 'header'= None)
 source_metadata_csv_args = {
+    'sep': ';'
     # 'header': None  # for CSVs with no header
-    # 'dtype': {}  # NOT RECOMMENDED: this might interfere with the default field dtypes
-    # 'usecols': []  # NOT RECOMMENDED: this might interfere with the default field names
+    # 'dtype': {}  # NOT RECOMMENDED, see `metadata_fields.yml` instead
+    # 'usecols': []  # NOT RECOMMENDED, see `source_metadata_fields` below instead
 }
 
 # Mapping from source metadata columns to their new names. Map to None to skip renaming
 # and just load the column data
 source_metadata_fields = {
-    'EQID': "event_id",
-    "station_id": "station_id",
-    "fpath_h1": None,
-    "fpath_h2": None,
-    "fpath_v": None,
+    'event_id': "event_id",
+    "network_code" :None,
+    "station_code": None,
+    "location_code": None,
+    "instrument_code": None,
 
-    "EpiD (km)": "epicentral_distance",
-    "HypD (km)": "hypocentral_distance",
-    "Joyner-Boore Dist. (km)": "joyner_boore_distance",
-    "ClstD (km)": "rupture_distance",
-    "Rx": "fault_normal_distance",
-    'YEAR': None,
-    'MODY': None,
-    'HRMN': None,
-    "Hypocenter Latitude (deg)": "event_latitude",
-    "Hypocenter Longitude (deg)": "event_longitude",
-    "Hypocenter Depth (km)": "event_depth",
-    "Earthquake Magnitude": "magnitude",
-    "Magnitude Type": "magnitude_type",
-    "Depth to Top Of Fault Rupture Model": "depth_to_top_of_fault_rupture",
-    "Fault Rupture Width (km)": "fault_rupture_width",
-    "Strike (deg)": "strike",
-    "Dip (deg)": "dip",
-    "Rake Angle (deg)": "rake",
+    "epi_dist": "epicentral_distance",
+    # "?": "hypocentral_distance",
+    "JB_dist": "joyner_boore_distance",
+    "rup_dist": "rupture_distance",
+    "Rx_dist": "fault_normal_distance",
+    'event_time': "event_time",
 
-    "Mechanism Based on Rake Angle": "fault_type",
-    "Vs30 (m/s) selected for analysis": "vs30",
+    "ev_latitude": "event_latitude",
+    "ev_longitude": "event_longitude",
+    "ev_depth": "event_depth",
+    "EMEC_Mw": "magnitude",
+    "Mw": None,
+    "ML": None,
+    "Ms": None,
+    "es_z_top": "depth_to_top_of_fault_rupture",
+    "es_width": "fault_rupture_width",
+    "es_strike": "strike",
+    "es_dip": "dip",
+    "es_rake": "rake",
+
+    "fm_type_code": "fault_type",
+    "vs30_m_sec": "vs30",
+    'vs30_meas_type': None,
+    'vs30_m_sec_WA': None,
+
     # vs30measured is a boolean expression; treated as key
-    "Measured/Inferred Class": "vs30measured",
-    "Station Latitude": "station_latitude",
-    "Station Longitude": "station_longitude",
-    "Northern CA/Southern CA - H11 Z1 (m)": "z1",
-    "Northern CA/Southern CA - H11 Z2.5 (m)": "z2pt5",
+    # "Measured/Inferred Class": "vs30measured",
+    "Station Latitude": "st_latitude",
+    "Station Longitude": "st_longitude",
+    # "Northern CA/Southern CA - H11 Z1 (m)": "z1",
+    # "Northern CA/Southern CA - H11 Z2.5 (m)": "z2pt5",
 
-    "Type of Filter": "filter_type",
-    "npass": "npass",
-    "nroll": "nroll",
-    "HP-H1 (Hz)": "lower_cutoff_frequency_h1",
-    "HP-H2 (Hz)": "lower_cutoff_frequency_h2",
-    "LP-H1 (Hz)": "upper_cutoff_frequency_h1",
-    "LP-H2 (Hz)": "upper_cutoff_frequency_h2",
-    "Lowest Usable Freq - H1 (Hz)": "lowest_usable_frequency_h1",
-    "Lowest Usable Freq - H2 (H2)": "lowest_usable_frequency_h2",
+    'U_channel_code': None,
+    'W_channel_code': None,
+    'V_channel_code': None,
+    'U_hp': None,
+    'V_hp': None,
+    'W_hp': None,
+    'U_lp': None,
+    'V_lp': None,
+    'W_lp': None,
 
-    "PGA (g)": "PGA"
+    # "Type of Filter": "filter_type",
+    # "npass": "npass",
+    # "nroll": "nroll",
+    # "HP-H1 (Hz)": "lower_cutoff_frequency_h1",
+    # "HP-H2 (Hz)": "lower_cutoff_frequency_h2",
+    # "LP-H1 (Hz)": "upper_cutoff_frequency_h1",
+    # "LP-H2 (Hz)": "upper_cutoff_frequency_h2",
+    # "Lowest Usable Freq - H1 (Hz)": "lowest_usable_frequency_h1",
+    # "Lowest Usable Freq - H2 (H2)": "lowest_usable_frequency_h2",
+
+    'rotD50_pga': 'PGA',
 }
 
 
 def accept_file(file_path) -> bool:
-    """Tell whether the given source file can be accepted as time history file"""
-    return splitext(file_path)[1].startswith('.AT')
+    """Tell whether the given source file can be accepted as waveform file
+
+    :param file_path: the scanned file absolute path (it can also be a file within a zip
+        file, in that case the parent directory name is the zip file name)
+    """
+    return splitext(file_path)[1].startswith('.ASC')
 
 
 def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
     """Pre-process the metadata Dataframe. This is usually the place where the given
     dataframe is setup in order to easily find records from file names, or optimize
-    some columns data (e.g. categorical from string).
+    some column data (e.g. convert strings to categorical).
 
-    :param metadata: the metadata DataFrame. The dataframe columns present in
-        `source_metadata_fields` are already renamed at this stage
+    :param metadata: the metadata DataFrame. The DataFrame columns come from the global
+        `source_metadata_fields` dict, using each value if not None, otherwise its key.
+
+    :return: a pandas DataFrame optionally modified from `metadata`
     """
-    metadata['event_id'] = metadata['event_id'].astype('category')
+    cols = ["network_code", "station_code", "location_code", "instrument_code"]
+    for c in cols:
+        metadata[c] = metadata[c].astype(str)
+    metadata = metadata.dropna(subset=cols)
+    metadata['station_id'] = metadata[cols].agg('.'.join, axis=1)
+    metadata = metadata.drop(columns=cols)
+
+    metadata['event_id'] = metadata['event_id'].astype(str).astype('category')
     metadata['station_id'] = metadata['station_id'].astype('category')
-    metadata = metadata.set_index(["fpath_h1", "fpath_h2", "fpath_v"], drop=True)
+
+    metadata['magnitude_type'] = 'Mw'
+    mag_missing = metadata['magnitude'].isna()
+    metadata.loc[mag_missing, 'magnitude_type'] = None
+    cols = ['Mw', 'Ms', 'ML']
+    for mag_type in cols:
+        mag_to_be_set = mag_missing & metadata[mag_type].notna()
+        if mag_to_be_set.any():
+            metadata.loc[mag_to_be_set, 'magnitude'] = metadata[mag_type][mag_to_be_set]
+            metadata.loc[mag_to_be_set, 'magnitude_type'] = mag_type
+            mag_missing = mag_missing & (~mag_to_be_set)
+    metadata = metadata.drop(columns=cols)
+
+    etime = datetime.fromisoformat(metadata['event_time'])
+    metadata['event_date'] = etime
+    metadata['event_date'] = etime.replace(second=0, minute=0, hour=0, microsecond=0)
+
+    fault_types = {
+        'SS': 'Strike-Slip',
+        'NF': 'Normal',
+        'TF': 'Reverse',
+        'O': 'Normal-Oblique'
+    }
+    metadata.loc[~metadata['fault_type'].isin(fault_types.keys()), 'fault_type'] = None
+    for key, repl in fault_types.items():
+        metadata.loc[metadata['fault_type'] == key, 'fault_type'] = repl
+
+    metadata['vs30measured'] = ~pd.isna(metadata.pop('vs30_meas_type'))
+    metadata.loc[pd.notna(metadata['vs30']), 'vs30measured'] = True
+    vs30_wa = metadata.pop('vs30_m_sec_WA')
+    set_vs30 = pd.isna(metadata['vs30']) & pd.notna(vs30_wa)
+    metadata.loc[set_vs30, 'vs30'] = vs30_wa[set_vs30]
+    metadata.loc[set_vs30, 'vs30measured'] = False
+
+    metadata["lower_cutoff_frequency_h1"] = np.nan
+    metadata["lowest_usable_frequency_h1"] = np.nan
+    metadata["lower_cutoff_frequency_h2"] = np.nan
+    metadata["lowest_usable_frequency_h2"] = np.nan
+    metadata["upper_cutoff_frequency_h1"] = np.nan
+    metadata["upper_cutoff_frequency_h2"] = np.nan
+
+    cols = {
+        'U_channel_code': ('U_hp', 'U_lp'),
+        'V_channel_code': ('V_hp', 'V_lp'),
+        'W_channel_code': ('W_hp', 'W_lp')
+    }
+    for ch_code_col, (hp_col, lp_col) in cols.items():
+        hp_values = metadata[hp_col]
+        lp_values = metadata[lp_col]
+
+        north_south = metadata[ch_code_col] == 'N'
+        metadata.loc[north_south, "lower_cutoff_frequency_h1"] = hp_values[north_south]
+        metadata.loc[north_south, "higher_cutoff_frequency_h1"] = lp_values[north_south]
+        metadata.loc[north_south, "lowest_usable_frequency_h1"] = hp_values[north_south]
+
+        east_west = metadata[ch_code_col] == 'E'
+        metadata.loc[east_west, "lower_cutoff_frequency_h2"] = hp_values[east_west]
+        metadata.loc[east_west, "higher_cutoff_frequency_h2"] = lp_values[east_west]
+        metadata.loc[east_west, "lowest_usable_frequency_h2"] = hp_values[east_west]
+
+        metadata = metadata.drop(columns=[ch_code_col, hp_col, lp_col])
+
+    metadata['PGA'] = metadata['PGA'] / 100  # from cm/sec2 to m/sec2
+
+    # metadata['filter_type'] = 'A'
+    # metadata["npass"] = 2  # FIXME CHECK
+    # metadata["nroll"] = 2  # FIXME CHECK
+
+    metadata = metadata.set_index(['event_id', 'station_id'], drop=True)
     return metadata
 
 
@@ -160,95 +230,89 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
         -> tuple[Optional[str], Optional[str], Optional[str], Optional[pd.Series]]:
     """Find the file paths of the three waveform components, and their metadata
 
-    :param file_path: the waveform path currently processed. Most likely, this is one of
-        the three returned waveform paths, adn the other two are inferred from it
+    :param file_path: the waveform path currently processed. it is one of the files
+        accepted via `accept_file` and it should denote one of the three waveform
+        components (the other two should be inferred from it)
     :param metadata: the Metadata dataframe. The returned waveforms metadata must be one
-        row of this object as pandas Series, any other object will raise
-    """
-    file_name_candidates = [basename(file_path)]
-    if file_name_candidates[0].startswith('RSN_'):
-        file_name_candidates.append(file_name_candidates[0][4:])
-    elif file_name_candidates[0].startswith('RSN'):
-        file_name_candidates.append(file_name_candidates[0][3:])
-    else:
-        file_name_candidates.append(f'RSN{file_name_candidates[0]}')
-        file_name_candidates.append(f'RSN_{file_name_candidates[0]}')
+        row of this object as pandas Series (any other object will raise)
 
-    root_dir = dirname(file_path)
-    for file_name in file_name_candidates:
-        for attempt in [
-            (file_name, slice(None), slice(None)),
-            (slice(None), file_name, slice(None)),
-            (slice(None), slice(None), file_name)
-        ]:
-            meta = metadata.loc[attempt]  # connote return a Series (slices in loc)
-            if len(meta) == 1:
-                file_names = meta.index[0]
-                return (
-                    join(root_dir, file_names[0]),
-                    join(root_dir, file_names[1]),
-                    join(root_dir, file_names[2]),
-                    meta.iloc[0]  # convert to Series
-                )
+    :return: A tuple with three strings denoting the file absolute paths of the three
+        components (horizontal1, horizontal2, vertical, in **this order** and the
+        pandas Series denoting the waveforms metadata (common to the three components)
+    """
+    ev_id = splitext(basename(dirname(file_path)))[0]
+    sta_id = ".".join(basename(file_path).split('.')[:4])
+    file_suffix = file_path.removeprefix(sta_id)
+    orientation = sta_id[-1]
+    sta_id = sta_id[:-1]
+    if orientation in {'N', 'E', 'Z'}:
+        try:
+            meta = metadata.loc[(ev_id, sta_id)]
+        except KeyError:
+            meta = {}
+
+        file_path_n = join(dirname(file_path), f'{sta_id}N{file_suffix}')
+        file_path_e = join(dirname(file_path), f'{sta_id}E{file_suffix}')
+        file_path_z = join(dirname(file_path), f'{sta_id}Z{file_suffix}')
+
+        if orientation == 'N':
+            return file_path, file_path_e, file_path_z, meta
+        elif orientation == 'E':
+            return file_path_n, file_path, file_path_z, meta
+        else:
+            return file_path_n, file_path_e, file_path, meta
 
     return None, None, None, None
 
-    # metadata_paths = [
-    #     ('' if pd.isna(metadata["fpath_h1"]) else metadata["fpath_h1"]).strip(),
-    #     ('' if pd.isna(metadata["fpath_h2"]) else metadata["fpath_h2"]).strip(),
-    #     ('' if pd.isna(metadata["fpath_v"]) else metadata["fpath_v"]).strip()
-    # ]
-    # file_paths = [[], [], []]
-    #
-    # rsn = str(metadata['Record Sequence Number'])
-    #
-    # for dir_name in waveform_file_paths:
-    #     for file_abs_path in waveform_file_paths[dir_name].values():
-    #         bname = basename(file_abs_path)
-    #         for i in range(len(metadata_paths)):
-    #             metadata_path = metadata_paths[i]
-    #             if not metadata_path or not bname:
-    #                 continue
-    #             metadata_path = f'{rsn}_{metadata_path}'
-    #             if bname.startswith('RSN_'):
-    #                 metadata_path = f'RSN_{metadata_path}'
-    #             elif bname.startswith('RSN'):
-    #                 metadata_path = f'RSN{metadata_path}'
-    #             if metadata_path == bname:
-    #                 file_paths[i].append(file_abs_path)
-    #                 continue
-    #
-    # return (
-    #     file_paths[0][0] if len(file_paths[0]) == 1 else None,
-    #     file_paths[1][0] if len(file_paths[1]) == 1 else None,
-    #     file_paths[2][0] if len(file_paths[2]) == 1 else None
-    # )
 
+def read_waveform(file_path: str, content: BytesIO, metadata: pd.Series) -> Waveform:
+    """Read a waveform from a file path
 
-def read_waveform(full_abs_path: str, content: BytesIO, metadata: pd.Series) -> Waveform:
-    """Read a waveform from a file path. Modify according to the format you stored
-    your time histories"""
+    :param file_path: the waveform path currently processed. It is one of the files
+        accepted via `accept_file` and it should denote one of the three waveform
+        components. You do not need to open the file here (see `content` parameter)
+    :param content: a BytesIO (file-like) object with the content of file_path, as byte
+        sequence
+    :param metadata: the pandas Series related to the given file, as returned from
+        `find_sources`
 
-    # First few lines are headers
-    header1 = content.readline().strip()
-    header2 = content.readline().strip()
-    header3 = content.readline().strip()
-    header4 = content.readline().split(",")
-    npts = int(re.match(r"NPTS\s*=\s*(\d+)", header4[0].strip()).group(1))
-    dt = float(re.match(r"DT\s*=\s*([\.\d]+)\s*SEC", header4[1].strip()).group(1))
-    data_str = " ".join(line for line in content)
-    # The acceleration time series is given in units of g. So I convert it in m/s.
-    return dt, np.fromstring(data_str, sep=" ") * 9.80665
+    :return: a `Waveform` object
+    """
+    factor = None
+    dt = None
+    pos = 0
+    for line in content:
+        pos = content.tell()  # remember current position
+        line = line.strip()
+        if b':' not in line:
+            break
+        line = line.decode('utf8')
+        key, val = line.split(':', 1)
+        key, val = key.strip(), val.strip()
+        if key == 'DATA_TYPE':
+            assert val == 'ACCELERATION', f'Invalid data type: {val}'
+        elif key == 'UNITS':
+            assert val in ('cm/s^2', 'm/s^2', 'g'), f'Invalid unit: {val}'
+            if val == 'cm/s^2':
+                factor = 0.01
+            elif val == 'g':
+                factor = 9.80665
+        elif key == 'SAMPLING_INTERVAL_S':
+            dt = float(val)
 
-    # The acceleration time series is given in units of g. So I convert it in m/s.
-    # However it is said only that its in the units of g, not sure if its 980 cm/s^ or 9.8 m/s^2
-    # g = 9.8  # in (m/s^2)
-    # data = np.array([number * g for number in data])
-    # pga = max([abs(number) for number in data])
-    # pga = max(np.abs(data))
-    # pga_ind = [abs(number) for number in data].index(pga)
-    # pga_ind = np.argmax(np.abs(data))
-    # return dt, data
+        if 'DATA_CITATION' in key or 'DATA_CREATOR' in key or 'DATA_MEDIATOR' in key:
+            continue
+        metadata[f'.{key}'] = val
+
+    assert dt is not None, 'dt not found in file'
+
+    content.seek(pos)
+    # Load data into numpy array from that line onward
+    data = np.fromstring(content.read(), sep=b'\n', dtype=float)
+    if factor is not None:
+        data *= factor
+
+    return Waveform(dt, data)
 
 
 def post_process(
@@ -262,195 +326,187 @@ def post_process(
     Optional[Waveform],
     Optional[Waveform]
 ]:
-    """Process the waveform(s), returning the same argument modified according to your
-    custom processing routine: a new metadata dict, and three obspy Traces denoting the
-    processed two horizontal and vertical components, respectively.
-
-    The metadata  dict can be built from `metadata_row` or from scratch, it must
-    include all fields defined in `metadata_fields.yml`. fpath* fields might be renamed
-    to supply the destination path of the traces, relative to the CSV file. Other fields
-    must be input with the correct data type: note that float, str, datetime and
-    categorical fields can be filled with None to indicate that the corresponding value
-    is missing or unknown.
-
-    For time histories, please remember to provide waveforms in standard units
-    (m/sec*sec, m/sec, m) and consistent with the value of of 'sensor_type' in the
-    returned metadata dict ('A', 'V', 'D'). Remember that, depending on your use-case,
-    some Traces might be None.
-
-    :param metadata: Python dict, corresponding to a row of your source metadata table.
-        Each dict key represents a Metadata Field (Column). Note that float, str,
-        datetime and categorical values can also be None (e.g., if the Metadata cell
-        was empty)
-    :param h1: first horizontal component, as tuple(dt:float, data:numeric_array),
-        or None (no Trace)
-    :param h2: second horizontal component, same format as h1
-    :param v: vertical component, same format as h1
     """
-    # convert time(s):
-    year = metadata['YEAR']
-    month_day = str(metadata['MODY'])
-    if month_day in (-999, '-999'):
-        raise AssertionError('Invalid month_day')
-    month_day = month_day.zfill(4)  # pad with zeroes
-    month, day = int(month_day[:2]), int(month_day[2:])
+    Custom post-processing on the metadata and waveforms read from disk.
+    Typically, you complete metadata and waveforms, e.g. filling the former with missing
+    fields, or converting the latter to the desired units (m/sec*sec, m/sec, m).
+    **Remember** that Waveform objects are IMMUTABLE, so you need to return new
+    Waveform object if modified
 
-    hour_min = str(metadata['HRMN'])
-    if hour_min in (-999, '-999'):
-        evt_time = pd.NaT
-        evt_date = datetime(
-            year=year, month=month, day=day, hour=0, minute=0, second=0, microsecond=0
+    :param metadata: the pandas Series related to the given file, as returned from
+        `find_sources`. Non-standard fields do not need to be removed, missing standard
+        fields will be filled with defaults (NaN, None or anything implemented in
+        `metadata_fields.yml`)
+    :param h1: the Waveform of the first horizontal component, or None (waveform N/A)
+    :param h2: the Waveform of the second horizontal component, or None (waveform N/A)
+    :param v: the Waveform of the vertical component, or None (waveform N/A)
+    """
+    # metadata contains also the entries below (PREFIXED WITH A DOT to avoid conflicts)
+    # stored in the data file, EXCEPT the entries whose keys contain either
+    # DATA_CITATION, DATA_CREATOR, DATA_MEDIATOR (verbose and unnecessary):
+
+    # EVENT_NAME: None
+    # EVENT_ID: TK-2000-0449
+    # EVENT_DATE_YYYYMMDD: 20000823
+    # EVENT_TIME_HHMMSS: 134126
+    # EVENT_LATITUDE_DEGREE: 40.7820
+    # EVENT_LONGITUDE_DEGREE: 30.7600
+    # EVENT_DEPTH_KM: 10.5
+    # HYPOCENTER_REFERENCE: ISC-webservice
+    # MAGNITUDE_W: 5.2
+    # MAGNITUDE_W_REFERENCE: Pondrelli_et_al_2002_dataset
+    # MAGNITUDE_L:
+    # MAGNITUDE_L_REFERENCE:
+    # FOCAL_MECHANISM: Strike-slip faulting
+    # NETWORK: TK
+    # STATION_CODE: 1001
+    # STATION_NAME: AI_146_BLK
+    # STATION_LATITUDE_DEGREE: 39.650030
+    # STATION_LONGITUDE_DEGREE: 27.856860
+    # STATION_ELEVATION_M:
+    # LOCATION: 00
+    # SENSOR_DEPTH_M:
+    # VS30_M/S:
+    # SITE_CLASSIFICATION_EC8: B (inferred from topography)
+    # MORPHOLOGIC_CLASSIFICATION:
+    # EPICENTRAL_DISTANCE_KM: 277.2
+    # EARTHQUAKE_BACKAZIMUTH_DEGREE: 244.0
+    # DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS: 20000823_134250.000
+    # DATE_TIME_FIRST_SAMPLE_PRECISION: seconds
+    # SAMPLING_INTERVAL_S: 0.005000
+    # NDATA: 18904
+    # DURATION_S: 94.520
+    # STREAM: HNE
+    # UNITS: cm/s^2
+    # INSTRUMENT: HN
+    # INSTRUMENT_ANALOG/DIGITAL: D
+    # INSTRUMENTAL_FREQUENCY_HZ:
+    # INSTRUMENTAL_DAMPING:
+    # FULL_SCALE_G:
+    # N_BIT_DIGITAL_CONVERTER:
+    # PGA_CM/S^2: 1.326285
+    # TIME_PGA_S: 30.350000
+    # BASELINE_CORRECTION: BASELINE REMOVED
+    # FILTER_TYPE: BUTTERWORTH
+    # FILTER_ORDER: 2
+    # LOW_CUT_FREQUENCY_HZ: 0.200
+    # HIGH_CUT_FREQUENCY_HZ: 20.000
+    # LATE/NORMAL_TRIGGERED: NT
+    # DATABASE_VERSION: 0.5
+    # HEADER_FORMAT: DYNA 1.2
+    # DATA_TYPE: ACCELERATION
+    # PROCESSING: manual (Paolucci et al., 2011)
+    # DATA_TIMESTAMP_YYYYMMDD_HHMMSS: 20250806_133936.520
+    # DATA_LICENSE: U (unknown license)
+    # DATA_CITATION: <NOT PRESENT (see above)>
+    # DATA_CREATOR: <NOT PRESENT (see above)>
+    # ORIGINAL_DATA_MEDIATOR_CITATION: <NOT PRESENT (see above)>
+    # ORIGINAL_DATA_MEDIATOR: <NOT PRESENT (see above)>
+    # ORIGINAL_DATA_CREATOR_CITATION: <NOT PRESENT (see above)>
+    # ORIGINAL_DATA_CREATOR: network: <NOT PRESENT (see above)>
+
+    not_na = pd.notna
+    is_na = pd.isna
+
+    # process remaining data:
+    if 'station_id' not in metadata:
+        metadata['station_id'] = ".".join([
+            metadata['.NETWORK'],
+            metadata['.STATION_CODE'],
+            metadata['.LOCATION'],
+            metadata['.INSTRUMENT']
+        ])
+
+    if 'filter_type' not in metadata:
+        if metadata['.FILTER_TYPE'] == 'BUTTERWORTH':
+            metadata['filter_type'] = 'A'
+            metadata['npass'] = metadata['.FILTER_ORDER'] or 0
+            metadata['nroll'] = metadata['.FILTER_ORDER'] or 0
+
+    low_cutoff = metadata.get('.LOW_CUT_FREQUENCY_HZ')
+    high_cutoff = metadata.get('.HIGH_CUT_FREQUENCY_HZ')
+    if metadata['.STREAM'][2] == 'N':
+        if is_na(metadata['lower_cutoff_frequency_h1']) and not_na(low_cutoff):
+            metadata['lower_cutoff_frequency_h1'] = low_cutoff
+            metadata['lowest_usable_frequency_h1'] = low_cutoff
+        if is_na(metadata['upper_cutoff_frequency_h1']) and not_na(high_cutoff):
+            metadata['upper_cutoff_frequency_h1'] = high_cutoff
+    if metadata['.STREAM'][2] == 'E':
+        if is_na(metadata['lower_cutoff_frequency_h2']) and not_na(low_cutoff):
+            metadata['lower_cutoff_frequency_h2'] = low_cutoff
+            metadata['lowest_usable_frequency_h2'] = low_cutoff
+        if is_na(metadata['upper_cutoff_frequency_h2']) and not_na(high_cutoff):
+            metadata['upper_cutoff_frequency_h2'] = high_cutoff
+
+    if is_na(metadata.get('magnitude')):
+        if not_na(metadata.get('.MAGNITUDE_W')):
+            metadata['magnitude'] = metadata['.MAGNITUDE_W']
+            metadata['magnitude_type'] = 'Mw'
+        elif not_na(metadata.get('.MAGNITUDE_L')):
+            metadata['magnitude'] = metadata['.MAGNITUDE_L']
+            metadata['magnitude_type'] = 'ML'
+
+    if 'fault_type' not in metadata and metadata.get('.FOCAL_MECHANISM'):
+        metadata['fault_type'] = metadata['.FOCAL_MECHANISM'].removesuffix(' faulting')
+
+    if is_na(metadata.get('start_time')) and \
+            not_na(metadata.get('.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS')):
+        metadata['start_time'] = datetime.strptime(
+            metadata['.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS'],
+            "%Y%m%d_%H%M%S"
         )
-    else:
-        hour_min = hour_min.zfill(4)  # pad with zeroes
-        hour, min = int(hour_min[:2]), int(hour_min[2:])
-        evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
-        evt_date = evt_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    # use datetimes also for event_date (for simplicity when casting later):
-    metadata["origin_date"] = evt_date
-    metadata["origin_time"] = evt_time
 
-    if metadata["filter_type"] in (-999, '-999'):
-        metadata["filter_type"] = None
+    if is_na(metadata.get('PGA')) and metadata.get('.PGA_CM/S^2'):
+        metadata['PGA'] = metadata['.PGA_CM/S^2'] / 100
 
-    if metadata['magnitude_type'] == 'U':
-        metadata['magnitude_type'] = None
+    if is_na(metadata.get('event_date')) and metadata.get('.EVENT_DATE_YYYYMMDD'):
+        date = metadata['.EVENT_DATE_YYYYMMDD']
+        metadata['event_date'] = datetime(
+            year=int(date[:4]),
+            month=int(date[4:6]),
+            day=int(date[6:]),
+            hour=0, minute=0, second=0, microsecond=0
+        )
 
-    try:
-        metadata['fault_type'] = [
-            'Strike-Slip', 'Normal', 'Reverse', 'Reverse-Oblique', 'Normal-Oblique'
-        ][int(metadata['fault_type'])]
-    except (IndexError, ValueError, TypeError):
-        metadata['fault_type'] = None
+    if is_na(metadata.get('eventtime')) and metadata.get('.EVENT_TIME_HHMMSS') and \
+            not_na(metadata.get('event_date')):
+        date = metadata['event_date']
+        if isinstance(date, str):
+            date = metadata['event_date'] = datetime.fromisoformat(date)
+        dtime = metadata['.EVENT_TIME_HHMMSS']
+        metadata['event_time'] = datetime(
+            year=date.year,
+            month=date.month,
+            day=date.day,
+            hour=int(dtime[:2]),
+            minute=int(dtime[2:4]),
+            second=int(dtime[4:6]),
+            microsecond=0
+        )
 
-    # convert from g to m/s2:
-    metadata["PGA"] = metadata["PGA"] * 9.80665
+    for key, new_key in {
+        'EVENT_ID': 'event_id',
+        'EVENT_LATITUDE_DEGREE': 'event_latitude',
+        'EVENT_LONGITUDE_DEGREE': 'event_longitude',
+        'EVENT_DEPTH_KM': 'event_depth',
+        'STATION_LATITUDE_DEGREE': 'station_latitude',
+        'STATION_LONGITUDE_DEGREE': 'station_longitude',
+        'STATION_ELEVATION_M': 'station_height',
+        # 'SENSOR_DEPTH_M': None,  # FIXME CHECK
+        'VS30_M/S': 'vs30',
+        # 'SITE_CLASSIFICATION_EC8': None,
+        'EPICENTRAL_DISTANCE_KM': 'epicentral_distance',
+        'DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS': 'start_time',
+    }.items():
+        if is_na(metadata.get(new_key)):
+            metadata[new_key] = metadata[f".{key}"]
 
-    # simply return the arguments (no processing by default):
+    if not_na(metadata['epientral_distance']) and not_na(metadata['event_depth']):
+        metadata['hypocentral_distance'] = np.sqrt(
+            (metadata['epicentral_distance'] ** 2) + metadata['event_depth'] ** 2
+        )
+
     return metadata, h1, h2, v
-
-    # pga check
-    # pga = metadata["PGA (g)"] * 9.80665  # convert m/sec square
-
-    # compute arrival time (correct)
-    # year = metadata['YEAR']
-    # month_day = str(metadata['MODY'])
-    # if month_day in (-999, '-999'):
-    #     raise AssertionError('Invalid month_day')
-    # month_day = month_day.zfill(4)  # pad with zeroes
-    # month, day = int(month_day[:2]), int(month_day[2:])
-    #
-    # hour_min = str(metadata['HRMN'])
-    # if hour_min in (-999, '-999'):
-    #     evt_time = pd.NaT
-    # else:
-    #     hour_min = hour_min.zfill(4)  # pad with zeroes
-    #     hour, min = int(hour_min[:2]), int(hour_min[2:])
-    #     evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
-    # # use datetimes also for event_date (for simplicity when casting later):
-    # evt_date = evt_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    # evt_id = str(metadata.get('EQID'))
-    # sta_id = str(metadata["station_id"])
-
-    # """
-    # Record Sequence Number,EQID,Earthquake Name,YEAR,MODY,HRMN,Station Name,
-    # Station Sequence Number,Station ID  No.,Earthquake Magnitude,Magnitude Type,
-    # Magnitude Uncertainty: Kagan Model,
-    # Magnitude Uncertainty: Statistical,Magnitude Sample Size,
-    # Magnitude Uncertainty: Study Class,Mo (dyne.cm),Strike (deg),Dip (deg),
-    # Rake Angle (deg),Mechanism Based on Rake Angle,P-plunge (deg),P-trend (deg),T-plunge (deg),
-    # T-trend (deg),Hypocenter Latitude (deg),Hypocenter Longitude (deg),
-    # Hypocenter Depth (km),
-    # Coseismic Surface Rupture: 1=Yes; 0=No;    -999=Unknown,Coseismic Surface Rupture (Including Inferred),Basis for Inference of Surface Rupture,Finite Rupture Model: 1=Yes;  0=No,
-    # Depth to Top Of Fault Rupture Model,Fault Rupture Length for Calculation of Ry (km),
-    # Fault Rupture Width (km),Fault Rupture Area (km^2),Avg Fault Disp (cm),Rise Time (s),
-    # Avg Slip Velocity (cm/s),Static Stress Drop (bars),Preferred Rupture Velocity (km/s),
-    # Average Vr/Vs,Percent of Moment Release in the Top 5 Km of Crust,
-    # Existence of Shallow Asperity: 0=No; 1=Yes,Depth to Top of Shallowest Asperity (km),
-    # Earthquake in Extensional Regime: 1=Yes; 0=No,Fault Name,Slip Rate (mm/Yr),
-    # EpiD (km),HypD (km),Joyner-Boore Dist. (km),Campbell R Dist. (km),RmsD (km),
-    # ClstD (km),Rx,FW/HW Indicator,Source to Site Azimuth (deg),X,
-    # Theta.D (deg),SSGA (Strike Slip),Y,
-    # Phi.D (deg),SSGA (Dip Slip),s,d,ctildepr,Unused Column,D,Rfn.Hyp,Rfp.Hyp,Unused Column,
-    # Unused Column,Unused Column,T,GMX's C1,GMX's C2,GMX's C3,Campbell's GEOCODE,Bray and Rodriguez-Marek SGS,
-    # Depth,Preferred NEHRP Based on Vs30,Vs30 (m/s) selected for analysis,
-    # Column Not Used,Measured/Inferred Class,Sigma of Vs30 (in natural log Units),NEHRP Classification from CGS's Site Condition Map,
-    # Geological Unit,Geology,Owner,Station Latitude,Station Longitude,STORIES,
-    # INSTLOC,Depth to Basement Rock,Site Visited,NGA Type,Age,Grain Size,Depositional History,
-    # Northern CA/Southern CA - H11 Z1 (m),Northern CA/Southern CA - H11 Z1.5 (m),Northern CA/Southern CA - H11 Z2.5 (m),Northern CA/Southern CA - S4 Z1 (m),Northern CA/Southern CA - S4 Z1.5 (m),
-    # Northern CA/Southern CA - S4 Z2.5 (m),Depth to Franciscan Rock (km),
-    # Basin,h (m),hnorm (m),Rsbe (m),Rcebe (m),Rebe (m),Rsbe1 (m),File Name (Horizontal 1),
-    # File Name (Horizontal 2),File Name (Vertical),H1 azimth (degrees),H2 azimith (degrees),
-    # Type of Recording,Instrument Model,PEA Processing Flag,
-    # Type of Filter,npass,nroll,HP-H1 (Hz),HP-H2 (Hz),LP-H1 (Hz),LP-H2 (Hz),Factor,
-    # Lowest Usable Freq - H1 (Hz),Lowest Usable Freq - H2 (H2),Lowest Usable Freq - Ave. Component (Hz),PGA (g),PGV (cm/sec),PGD (cm),T0.010S,T0.020S,T0.022S,T0.025S,T0.029S,T0.030S,T0.032S,T0.035S,T0.036S,T0.040S,T0.042S,T0.044S,T0.045S,T0.046S,T0.048S,T0.050S,T0.055S,T0.060S,T0.065S,T0.067S,T0.070S,T0.075S,T0.080S,T0.085S,T0.090S,T0.095S,T0.100S,T0.110S,T0.120S,T0.130S,T0.133S,T0.140S,T0.150S,T0.160S,T0.170S,T0.180S,T0.190S,T0.200S,T0.220S,T0.240S,T0.250S,T0.260S,T0.280S,T0.290S,T0.300S,T0.320S,T0.340S,T0.350S,T0.360S,T0.380S,T0.400S,T0.420S,T0.440S,T0.450S,T0.460S,T0.480S,T0.500S,T0.550S,T0.600S,T0.650S,T0.667S,T0.700S,T0.750S,T0.800S,T0.850S,T0.900S,T0.950S,T1.000S,T1.100S,T1.200S,T1.300S,T1.400S,T1.500S,T1.600S,T1.700S,T1.800S,T1.900S,T2.000S,T2.200S,T2.400S,T2.500S,T2.600S,T2.800S,T3.000S,T3.200S,T3.400S,T3.500S,T3.600S,T3.800S,T4.000S,T4.200S,T4.400S,T4.600S,T4.800S,T5.000S,T5.500S,T6.000S,T6.500S,T7.000S,T7.500S,T8.000S,T8.500S,T9.000S,T9.500S,T10.000S,T11.000S,T12.000S,T13.000S,T14.000S,T15.000S,T20.000S
-    # """
-
-
-
-    # new_metadata = {
-    #     'event_id': evt_id,
-    #     'epicentral_distance': metadata["EpiD (km)"],
-    #     'hypocentral_distance': metadata["HypD (km)"],
-    #     'joyner_boore_distance': metadata["Joyner-Boore Dist. (km)"],
-    #     'rupture_distance': metadata["ClstD (km)"],
-    #     'fault_normal_distance': metadata['Rx'],
-    #     'origin_time': evt_time,
-    #     'origin_date': evt_date,
-    #     'event_latitude': metadata["Hypocenter Latitude (deg)"],
-    #     'event_longitude': metadata["Hypocenter Longitude (deg)"],
-    #     'event_depth': metadata["Hypocenter Depth (km)"],
-    #     'magnitude': metadata["Earthquake Magnitude"],
-    #     'magnitude_type': metadata["Magnitude Type"],
-    #     'depth_to_top_of_fault_rupture': metadata["Depth to Top Of Fault Rupture Model"],
-    #     'fault_rupture_width': metadata["Fault Rupture Width (km)"],
-    #     'strike': metadata["Strike (deg)"],
-    #     'dip': metadata["Dip (deg)"],
-    #     'rake': metadata["Rake Angle (deg)"],
-    #     'strike2': None,
-    #     'dip2': None,
-    #     'rake2': None,
-    #     'fault_type': metadata["Mechanism Based on Rake Angle"],
-    #
-    #     'station_id': sta_id,
-    #     "vs30": metadata["Vs30 (m/s) selected for analysis"],
-    #     "vs30measured": metadata["Measured/Inferred Class"] in {0, "0", 0.0},
-    #     "station_latitude": metadata["Station Latitude"],
-    #     "station_longitude": metadata["Station Longitude"],
-    #     "z1": metadata["Northern CA/Southern CA - H11 Z1 (m)"],
-    #     "z2pt5": metadata["Northern CA/Southern CA - H11 Z2.5 (m)"],
-    #     "region": 0,
-    #
-    #     # "sensor_type": 'A',
-    #     "filter_type": metadata["Type of Filter"],
-    #     "npass": metadata["npass"],
-    #     "nroll": metadata["nroll"],
-    #     "lower_cutoff_frequency_h1": metadata["HP-H1 (Hz)"],
-    #     "lower_cutoff_frequency_h2": metadata["HP-H2 (Hz)"],
-    #     "upper_cutoff_frequency_h1": metadata["LP-H1 (Hz)"],
-    #     "upper_cutoff_frequency_h2": metadata["LP-H2 (Hz)"],
-    #     "lowest_usable_frequency_h1": metadata["Lowest Usable Freq - H1 (Hz)"],
-    #     "lowest_usable_frequency_h2": metadata["Lowest Usable Freq - H2 (H2)"],
-    #     'PGA': pga,
-    # }
-
-    # correct missing values:
-
-    # if new_metadata["filter_type"] in (-999, '-999'):
-    #     new_metadata["filter_type"] = None
-    #
-    # if new_metadata['magnitude_type'] == 'U':
-    #     new_metadata['magnitude_type'] = None
-    #
-    # try:
-    #     new_metadata['fault_type'] = [
-    #         'Strike-Slip', 'Normal', 'Reverse', 'Reverse-Oblique', 'Normal-Oblique'
-    #     ][int(new_metadata['fault_type'])]
-    # except (IndexError, ValueError, TypeError):
-    #     new_metadata['fault_type'] = None
-    #
-    # # simply return the arguments (no processing by default):
-    # return new_metadata, h1, h2, v
 
 
 ###########################################
@@ -458,8 +514,8 @@ def post_process(
 ###########################################
 
 
-def main():
-
+def main():  # noqa
+    """main processing routine called from the command line"""
     try:
         source_metadata_path, source_waveforms_path, dest_root_path = \
             read_script_args(sys.argv)
@@ -545,10 +601,8 @@ def main():
     while len(files):
         num_files = 1
         file = files.pop()
-        step_name = ""
 
         try:
-            step_name = "find_related"
             h1_path, h2_path, v_path, record = find_sources(file, metadata)
 
             # checks:
@@ -565,7 +619,6 @@ def main():
 
             comps = {}
             for cmp_name, cmp_path in zip(('h1', 'h2', 'v'), (h1_path, h2_path, v_path)):
-                step_name = f"read_waveform ({cmp_name})"
                 comps[cmp_name] = None
                 if cmp_path and isfile(cmp_path):
                     with open_file(cmp_path) as file_p:
@@ -577,7 +630,6 @@ def main():
                 raise Exception('Waveform components have mismatching dt')
 
             # process waveforms
-            step_name = "save_waveforms"  # noqa
             h1, h2, v = comps.get('h1'), comps.get('h2'), comps.get('v')
             # old_record = dict(record)  # for testing purposes
             new_record, h1, h2, v = post_process(record, h1, h2, v)
@@ -590,7 +642,6 @@ def main():
                     continue
                 default_val = metadata_fields[f].get('default')
                 val = new_record.get(f, default_val)
-                step_name = f"_cast_dtype (field '{f}')"
                 dtype = metadata_fields[f]['dtype']
                 try:
                     clean_record[f] = cast_dtype(val, dtype)
@@ -608,22 +659,19 @@ def main():
                 int(metadata_fields['sampling_rate']['default'])
 
             # save metadata:
-            step_name = "save_metadata"  # noqa
             records.append(clean_record)
             if len(records) > 1000:
                 save_metadata(dest_metadata_path, pd.DataFrame(records), metadata_fields)
                 records = []
 
             # save waveforms
-            step_name = "save_waveforms"  # noqa
             file_path = join(dest_waveforms_path, get_file_path(clean_record))
             if not isfile(file_path):
                 save_waveforms(file_path, h1, h2, v)
 
         except Exception as exc:
-            logging.error(
-                f"[ERROR] {file}: {exc} | Step: `{step_name}`"
-            )
+            fname, lineno = exc_func_and_lineno(exc, __file__)
+            logging.error(f"[ERROR] {exc}. In '{fname}', line {lineno}")
             errs += 1
         finally:
             pbar.update(num_files)
@@ -944,6 +992,30 @@ def read_wafevorms(file_path) -> (float, np.ndarray, np.ndarray, np.ndarray):
         h2 = f['h2'][:]
         v = f['v'][:]
     return dt, h1, h2, v
+
+
+def exc_func_and_lineno(exc, module_path: str = __file__) -> tuple[str, int]:
+    """
+    Return the innermost function name and line number within `__file__`
+    that raised `exc`
+    """
+    tb = exc.__traceback__
+    deepest = None
+
+    while tb:
+        frame = tb.tb_frame
+        filename = frame.f_code.co_filename
+
+        if os.path.samefile(filename, module_path):
+            deepest = frame
+
+        tb = tb.tb_next
+
+    # fallback to outermost frame if none found
+    if deepest is None:
+        deepest = exc.__traceback__.tb_frame
+
+    return deepest.f_code.co_name, deepest.f_lineno
 
 
 if __name__ == "__main__":
