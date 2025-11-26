@@ -489,7 +489,21 @@ def post_process(
         if is_na(metadata.get(new_key)):
             metadata[new_key] = metadata[f".{key}"]
 
-    if not_na(metadata['epicentral_distance']) and not_na(metadata['event_depth']):
+    if is_na(metadata.get('vs30')) and not_na(metadata.get('SITE_CLASSIFICATION_EC8')):
+        val = {
+            "A": 900,
+            "B": 580,
+            "C": 270,
+            "D": 150,
+            "E": 100
+        }.get(metadata['SITE_CLASSIFICATION_EC8'])
+        if not_na(val):
+            metadata['vs30'] = val
+            metadata['vs30measured'] = False
+
+    if not_na(metadata.get('epicentral_distance')) and \
+            not_na(metadata.get('event_depth')) and \
+            is_na(metadata.get('hypocentral_distance')):
         metadata['hypocentral_distance'] = np.sqrt(
             (metadata['epicentral_distance'] ** 2) + metadata['event_depth'] ** 2
         )
@@ -577,7 +591,7 @@ def main():  # noqa
     )
     metadata = pd.read_csv(source_metadata_path, **csv_args)
     metadata = metadata.rename(
-        columns={k: v for k, v in source_metadata_fields.items() if v is not None}    # RHB1 and SITE_CLASSIFICATION_EC8  # FIXME DO!
+        columns={k: v for k, v in source_metadata_fields.items() if v is not None}
     )
     old_len = len(metadata)
     metadata = pre_process(metadata)
