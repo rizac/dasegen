@@ -584,7 +584,7 @@ def main():  # noqa
     )
 
     print(f'Reading source metadata file...', end=" ", flush=True)
-    csv_args = dict(source_metadata_csv_args)
+    csv_args: dict[str, Any] = dict(source_metadata_csv_args)
     # csv_args.setdefault('chunksize', 10000)
     csv_args.setdefault(
         'usecols', csv_args.get('usecols', {}) | source_metadata_fields.keys()

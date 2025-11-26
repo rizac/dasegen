@@ -375,14 +375,14 @@ def main():  # noqa
     )
 
     print(f'Reading source metadata file...', end=" ", flush=True)
-    csv_args = dict(source_metadata_csv_args)
+    csv_args: dict[str, Any] = dict(source_metadata_csv_args)
     # csv_args.setdefault('chunksize', 10000)
     csv_args.setdefault(
         'usecols', csv_args.get('usecols', {}) | source_metadata_fields.keys()
     )
     metadata = pd.read_csv(source_metadata_path, **csv_args)
     metadata = metadata.rename(
-        columns={k: v for k, v in source_metadata_fields.items() if v is not None}    # RHB1 and SITE_CLASSIFICATION_EC8  # FIXME DO!
+        columns={k: v for k, v in source_metadata_fields.items() if v is not None}
     )
     old_len = len(metadata)
     metadata = pre_process(metadata)
