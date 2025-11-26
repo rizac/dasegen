@@ -133,6 +133,7 @@ def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
 
     :return: a pandas DataFrame optionally modified from `metadata`
     """
+    metadata = metadata.dropna(subset=['event_id', 'station_id'])
     metadata['event_id'] = metadata['event_id'].astype('category')
     metadata['station_id'] = metadata['station_id'].astype('category')
     metadata = metadata.set_index(["event_id", "station_id"], drop=True)
@@ -373,7 +374,6 @@ def main():  # noqa
     )
     old_len = len(metadata)
     metadata = pre_process(metadata)
-    metadata = metadata.dropna(subset=['event_id', 'station_id'])
     if len(metadata) < old_len:
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')

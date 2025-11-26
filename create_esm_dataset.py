@@ -74,7 +74,7 @@ source_metadata_fields = {
     "JB_dist": "joyner_boore_distance",
     "rup_dist": "rupture_distance",
     "Rx_dist": "fault_normal_distance",
-    'event_time': "event_time",
+    'event_time': "origin_time",
 
     "ev_latitude": "event_latitude",
     "ev_longitude": "event_longitude",
@@ -147,7 +147,7 @@ def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
     cols = ["network_code", "station_code", "location_code", "instrument_code"]
     for c in cols:
         metadata[c] = metadata[c].astype(str)
-    metadata = metadata.dropna(subset=cols)
+    metadata = metadata.dropna(subset=cols + ['event_id'])
     metadata['station_id'] = metadata[cols].agg('.'.join, axis=1)
     metadata = metadata.drop(columns=cols)
 
@@ -166,9 +166,8 @@ def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
             mag_missing = mag_missing & (~mag_to_be_set)
     metadata = metadata.drop(columns=cols)
 
-    etime = datetime.fromisoformat(metadata['event_time'])
-    metadata['event_date'] = etime
-    metadata['event_date'] = etime.replace(second=0, minute=0, hour=0, microsecond=0)
+    metadata['origin_time'] = pd.to_datetime(metadata['origin_time'])
+    metadata['origin_date'] = metadata['origin_time'].dt.normalize()
 
     fault_types = {
         'SS': 'Strike-Slip',
@@ -241,7 +240,7 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
     """
     ev_id = splitext(basename(dirname(file_path)))[0]
     sta_id = ".".join(basename(file_path).split('.')[:4])
-    file_suffix = file_path.removeprefix(sta_id)
+    file_suffix = basename(file_path).removeprefix(sta_id)
     orientation = sta_id[-1]
     sta_id = sta_id[:-1]
     if orientation in {'N', 'E', 'Z'}:
@@ -307,7 +306,7 @@ def read_waveform(file_path: str, content: BytesIO, metadata: pd.Series) -> Wave
 
     content.seek(pos)
     # Load data into numpy array from that line onward
-    data = np.fromstring(content.read(), sep=b'\n', dtype=float)
+    data = np.fromstring(content.read().decode('utf-8'), sep='\n', dtype=float)
     if factor is not None:
         data *= factor
 
@@ -419,8 +418,8 @@ def post_process(
     if 'filter_type' not in metadata:
         if metadata['.FILTER_TYPE'] == 'BUTTERWORTH':
             metadata['filter_type'] = 'A'
-            metadata['npass'] = metadata['.FILTER_ORDER'] or 0
-            metadata['nroll'] = metadata['.FILTER_ORDER'] or 0
+            metadata['npass'] = int(metadata['.FILTER_ORDER'] or 0)
+            metadata['nroll'] = int(metadata['.FILTER_ORDER'] or 0)
 
     low_cutoff = metadata.get('.LOW_CUT_FREQUENCY_HZ')
     high_cutoff = metadata.get('.HIGH_CUT_FREQUENCY_HZ')
@@ -450,30 +449,38 @@ def post_process(
 
     if is_na(metadata.get('start_time')) and \
             not_na(metadata.get('.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS')):
-        metadata['start_time'] = datetime.strptime(
-            metadata['.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS'],
-            "%Y%m%d_%H%M%S"
-        )
+        for fmt in ("%Y%m%d_%H%M%S.%f", "%Y%m%d_%H%M%S"):
+            try:
+                metadata['start_time'] = datetime.strptime(
+                    metadata['.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS'],
+                    fmt
+                )
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError(f"Cannot parse start_time from waveform file: "
+                             f"{metadata['.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS']}")
 
     if is_na(metadata.get('PGA')) and metadata.get('.PGA_CM/S^2'):
         metadata['PGA'] = metadata['.PGA_CM/S^2'] / 100
 
-    if is_na(metadata.get('event_date')) and metadata.get('.EVENT_DATE_YYYYMMDD'):
+    if is_na(metadata.get('origin_date')) and metadata.get('.EVENT_DATE_YYYYMMDD'):
         date = metadata['.EVENT_DATE_YYYYMMDD']
-        metadata['event_date'] = datetime(
+        metadata['origin_date'] = datetime(
             year=int(date[:4]),
             month=int(date[4:6]),
             day=int(date[6:]),
             hour=0, minute=0, second=0, microsecond=0
         )
 
-    if is_na(metadata.get('eventtime')) and metadata.get('.EVENT_TIME_HHMMSS') and \
-            not_na(metadata.get('event_date')):
-        date = metadata['event_date']
+    if is_na(metadata.get('origin_time')) and metadata.get('.EVENT_TIME_HHMMSS') and \
+            not_na(metadata.get('origin_date')):
+        date = metadata['origin_date']
         if isinstance(date, str):
-            date = metadata['event_date'] = datetime.fromisoformat(date)
+            date = metadata['origin_date'] = datetime.fromisoformat(date)
         dtime = metadata['.EVENT_TIME_HHMMSS']
-        metadata['event_time'] = datetime(
+        metadata['origin_time'] = datetime(
             year=date.year,
             month=date.month,
             day=date.day,
@@ -500,7 +507,7 @@ def post_process(
         if is_na(metadata.get(new_key)):
             metadata[new_key] = metadata[f".{key}"]
 
-    if not_na(metadata['epientral_distance']) and not_na(metadata['event_depth']):
+    if not_na(metadata['epicentral_distance']) and not_na(metadata['event_depth']):
         metadata['hypocentral_distance'] = np.sqrt(
             (metadata['epicentral_distance'] ** 2) + metadata['event_depth'] ** 2
         )
@@ -587,7 +594,6 @@ def main():  # noqa
     )
     old_len = len(metadata)
     metadata = pre_process(metadata)
-    metadata = metadata.dropna(subset=['event_id', 'station_id'])
     if len(metadata) < old_len:
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')

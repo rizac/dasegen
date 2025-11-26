@@ -130,10 +130,12 @@ def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
 
     :return: a pandas DataFrame optionally modified from `metadata`
     """
+    cols = ["fpath_h1", "fpath_h2", "fpath_v"]
+    metadata = metadata.dropna(subset=cols + ['event_id', 'station_id'])
+    # set event and station categorical (save space)
     metadata['event_id'] = metadata['event_id'].astype('category')
     metadata['station_id'] = metadata['station_id'].astype('category')
-    cols = ["fpath_h1", "fpath_h2", "fpath_v"]
-    metadata = metadata.dropna(subset=cols)
+    # set fpath as index (+ some prefix addition):
     for col in cols:
         assert not metadata[col].str.startswith('RSN').any()
         metadata[col] = metadata[col].str.strip()
@@ -368,7 +370,6 @@ def main():  # noqa
     )
     old_len = len(metadata)
     metadata = pre_process(metadata)
-    metadata = metadata.dropna(subset=['event_id', 'station_id'])
     if len(metadata) < old_len:
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')
