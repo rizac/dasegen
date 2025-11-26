@@ -161,9 +161,9 @@ station_latitude:
 station_longitude:
   dtype: float
   help: station longitude (deg), in [-180, 180]
-station_height:
-  dtype: float
-  help: Station height (negative values allowed and might indicate e.g., boreholes)
+#station_height:
+#  dtype: float
+#  help: Station height (negative values allowed and might indicate e.g., boreholes)
 #xvf:
 #  dtype: float
 #  help: distance to the volcanic front (km)
@@ -263,13 +263,14 @@ start_time:
   dtype: datetime
   help: >-
     start time of the time histories (h1, h2, v). If provided, all components 
-    start time is the same. If missing (NA), this condition is not guaranteed
+    start time is the same. If missing (NA), this condition is not guaranteed or simply
+    the datum is N/A
 p_wave_arrival_time:
   dtype: datetime
-  help: theoretical P-wave arrival time
+  help: theoretical P-wave arrival time, if available
 s_wave_arrival_time:
   dtype: datetime
-  help: theoretical S-wave arrival time
+  help: theoretical S-wave arrival time, if available
 PGA:
   dtype: float
   help: >-

@@ -3,7 +3,7 @@ import importlib.util
 import shutil
 import os
 import sys
-from os.path import dirname, join, abspath, isdir, splitext
+from os.path import dirname, join, abspath, isdir, splitext, basename
 from io import StringIO, BytesIO
 import subprocess
 from unittest.mock import patch
@@ -103,3 +103,27 @@ def test_knet():
 
 def test_esm():
     run_('esm')
+
+
+def test_stats():
+    import pandas as pd
+    root = join(dirname(__file__), 'source_data')
+    for file, sep in [
+        ('esm/ESM_flatfile_SA.csv', ";"),
+        ('ngawest2/ngawest2_metadata.csv', ','),
+        ('kiknet_knet/kiknet_knet_metadata.csv', ",")
+    ]:
+        df = pd.read_csv(join(root, file), sep=sep)
+        ratios = []
+        for col in df.columns:
+            notna = (~df[col].isin({-999, -999999, '-999', '-999999'})) & df[col].notna()
+            ratios.append((col, int(100 * notna.sum() / len(df))))
+        # Sort descending by ratio
+        ratios_sorted = sorted(ratios, key=lambda x: x[1], reverse=True)
+
+        print("\n")
+        print(basename(file))
+        for k in ratios_sorted:
+            if k[1] > 95:
+                print(k)
+        print("\n\n")
