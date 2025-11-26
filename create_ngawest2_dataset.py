@@ -248,25 +248,28 @@ def post_process(
     # convert time(s):
     year = metadata['YEAR']
     month_day = str(metadata['MODY'])
-    if month_day in (-999, '-999'):
+    if month_day in (-999, '-999') or pd.isna(month_day):
         raise AssertionError('Invalid month_day')
     month_day = month_day.zfill(4)  # pad with zeroes
     month, day = int(month_day[:2]), int(month_day[2:])
 
     hour_min = str(metadata['HRMN'])
-    if hour_min in (-999, '-999'):
-        evt_time = pd.NaT
-        evt_date = datetime(
+    if hour_min in (-999, '-999') or pd.isna(hour_min):
+        evt_time = datetime(
             year=year, month=month, day=day, hour=0, minute=0, second=0, microsecond=0
         )
+        ot_res = 'D'
     else:
         hour_min = hour_min.zfill(4)  # pad with zeroes
-        hour, min = int(hour_min[:2]), int(hour_min[2:])
-        evt_time = datetime(year=year, month=month, day=day, hour=hour, minute=min)
-        evt_date = evt_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        hour, mins = int(hour_min[:2]), int(hour_min[2:])
+        evt_time = datetime(
+            year=year, month=month, day=day, hour=hour, minute=mins, second=0,
+            microsecond=0
+        )
+        ot_res = 'm'
     # use datetimes also for event_date (for simplicity when casting later):
-    metadata["origin_date"] = evt_date
     metadata["origin_time"] = evt_time
+    metadata["origin_time_resolution"] = ot_res
 
     if metadata["filter_type"] in (-999, '-999'):
         metadata["filter_type"] = None
@@ -631,11 +634,8 @@ def check_final_metadata(metadata: dict, h1: Optional[Waveform], h2: Optional[Wa
         assert np.isclose(pga_c, pga, rtol=rtol, atol=0), \
             f"|PGA - PGA_computed| > {rtol} * | PGA |"
 
-    o_time = 'origin_time' if pd.notna(metadata['origin_time']) else 'origin_date'
-    assert pd.notna(metadata[o_time]), f"{o_time} is NA"
-
     for t_before, t_after in [
-        (o_time, 'p_wave_arrival_time'),
+        ('origin_time', 'p_wave_arrival_time'),
         ('p_wave_arrival_time', 's_wave_arrival_time')
     ]:
         val_before = metadata.get(t_before)

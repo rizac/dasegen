@@ -167,7 +167,7 @@ def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
     metadata = metadata.drop(columns=cols)
 
     metadata['origin_time'] = pd.to_datetime(metadata['origin_time'])
-    metadata['origin_date'] = metadata['origin_time'].dt.normalize()
+    metadata['origin_time_resolution'] = 's'
 
     fault_types = {
         'SS': 'Strike-Slip',
@@ -465,30 +465,27 @@ def post_process(
     if is_na(metadata.get('PGA')) and metadata.get('.PGA_CM/S^2'):
         metadata['PGA'] = metadata['.PGA_CM/S^2'] / 100
 
-    if is_na(metadata.get('origin_date')) and metadata.get('.EVENT_DATE_YYYYMMDD'):
+    if is_na(metadata.get('origin_time')) and metadata.get('.EVENT_DATE_YYYYMMDD'):
         date = metadata['.EVENT_DATE_YYYYMMDD']
-        metadata['origin_date'] = datetime(
+        metadata['origin_time'] = datetime(
             year=int(date[:4]),
             month=int(date[4:6]),
             day=int(date[6:]),
             hour=0, minute=0, second=0, microsecond=0
         )
-
-    if is_na(metadata.get('origin_time')) and metadata.get('.EVENT_TIME_HHMMSS') and \
-            not_na(metadata.get('origin_date')):
-        date = metadata['origin_date']
-        if isinstance(date, str):
-            date = metadata['origin_date'] = datetime.fromisoformat(date)
-        dtime = metadata['.EVENT_TIME_HHMMSS']
-        metadata['origin_time'] = datetime(
-            year=date.year,
-            month=date.month,
-            day=date.day,
-            hour=int(dtime[:2]),
-            minute=int(dtime[2:4]),
-            second=int(dtime[4:6]),
-            microsecond=0
-        )
+        metadata['origin_time_resolution'] = 'D'
+        if metadata.get('.EVENT_TIME_HHMMSS'):
+            dtime = metadata['.EVENT_TIME_HHMMSS']
+            metadata['origin_time_resolution'] = 's'
+            metadata['origin_time'] = datetime(
+                year=date.year,
+                month=date.month,
+                day=date.day,
+                hour=int(dtime[:2]),
+                minute=int(dtime[2:4]),
+                second=int(dtime[4:6]),
+                microsecond=0
+            )
 
     for key, new_key in {
         'EVENT_ID': 'event_id',
@@ -855,11 +852,8 @@ def check_final_metadata(metadata: dict, h1: Optional[Waveform], h2: Optional[Wa
         assert np.isclose(pga_c, pga, rtol=rtol, atol=0), \
             f"|PGA - PGA_computed| > {rtol} * | PGA |"
 
-    o_time = 'origin_time' if pd.notna(metadata['origin_time']) else 'origin_date'
-    assert pd.notna(metadata[o_time]), f"{o_time} is NA"
-
     for t_before, t_after in [
-        (o_time, 'p_wave_arrival_time'),
+        ('origin_time', 'p_wave_arrival_time'),
         ('p_wave_arrival_time', 's_wave_arrival_time')
     ]:
         val_before = metadata.get(t_before)

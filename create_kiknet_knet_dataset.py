@@ -259,6 +259,7 @@ def post_process(
     """
     orig_meta, metadata = metadata, metadata.copy()
     metadata['origin_time'] = datetime.fromisoformat(metadata["origin_time"])
+    metadata['origin_time_resolution'] = 's'
     dt_format = "%Y%m%d%H%M%S"
     metadata["start_time"] = \
         datetime.strptime(str(metadata["start_time"]), dt_format)
@@ -266,8 +267,6 @@ def post_process(
         datetime.strptime(str(metadata["p_wave_arrival_time"]), dt_format)
     metadata["s_wave_arrival_time"] = \
         datetime.strptime(str(metadata["s_wave_arrival_time"]), dt_format)
-    metadata["origin_date"] = \
-        metadata['origin_time'].replace(hour=0, minute=0, second=0, microsecond=0)
     metadata['fault_type'] = {
         'S': 'Strike-Slip',
         'N': 'Normal',
@@ -635,11 +634,8 @@ def check_final_metadata(metadata: dict, h1: Optional[Waveform], h2: Optional[Wa
         assert np.isclose(pga_c, pga, rtol=rtol, atol=0), \
             f"|PGA - PGA_computed| > {rtol} * | PGA |"
 
-    o_time = 'origin_time' if pd.notna(metadata['origin_time']) else 'origin_date'
-    assert pd.notna(metadata[o_time]), f"{o_time} is NA"
-
     for t_before, t_after in [
-        (o_time, 'p_wave_arrival_time'),
+        ('origin_time', 'p_wave_arrival_time'),
         ('p_wave_arrival_time', 's_wave_arrival_time')
     ]:
         val_before = metadata.get(t_before)
