@@ -98,8 +98,8 @@ source_metadata_fields = {
     "Northern CA/Southern CA - H11 Z2.5 (m)": "z2pt5",
 
     "Type of Filter": "filter_type",
-    "npass": "npass",
-    "nroll": "nroll",
+    "npass": None,
+    "nroll": None,
     "HP-H1 (Hz)": "lower_cutoff_frequency_h1",
     "HP-H2 (Hz)": "lower_cutoff_frequency_h2",
     "LP-H1 (Hz)": "upper_cutoff_frequency_h1",
@@ -271,8 +271,16 @@ def post_process(
     metadata["origin_time"] = evt_time
     metadata["origin_time_resolution"] = ot_res
 
+    metadata['filter_order'] = 0  # the default (unknown)
     if metadata["filter_type"] in (-999, '-999'):
         metadata["filter_type"] = None
+    elif metadata['filter_type'] == 'A':
+        # this link: https://peer.berkeley.edu/sites/default/files/webpeer-2014-20-mayssa_dabaghi_armen_der_kiureghian.pdf  # noqa
+        # states that they used a 5-th order acasual butterwoirth. Most of the data
+        # has nroll=2.5 and npass =1. I assume that for these cases, if filter_type = A,
+        # then the order is 5 (consistent with nroll and npass):
+        if metadata['nroll'] in {2.5, '2.5'} and metadata['npass'] in {1, '1'}:
+            metadata['filter_order'] = 5
 
     if metadata['magnitude_type'] == 'U':
         metadata['magnitude_type'] = None

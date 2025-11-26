@@ -111,16 +111,6 @@ source_metadata_fields = {
     'V_lp': None,
     'W_lp': None,
 
-    # "Type of Filter": "filter_type",
-    # "npass": "npass",
-    # "nroll": "nroll",
-    # "HP-H1 (Hz)": "lower_cutoff_frequency_h1",
-    # "HP-H2 (Hz)": "lower_cutoff_frequency_h2",
-    # "LP-H1 (Hz)": "upper_cutoff_frequency_h1",
-    # "LP-H2 (Hz)": "upper_cutoff_frequency_h2",
-    # "Lowest Usable Freq - H1 (Hz)": "lowest_usable_frequency_h1",
-    # "Lowest Usable Freq - H2 (H2)": "lowest_usable_frequency_h2",
-
     'rotD50_pga': 'PGA',
 }
 
@@ -215,10 +205,6 @@ def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
         metadata = metadata.drop(columns=[ch_code_col, hp_col, lp_col])
 
     metadata['PGA'] = metadata['PGA'] / 100  # from cm/sec2 to m/sec2
-
-    # metadata['filter_type'] = 'A'
-    # metadata["npass"] = 2  # FIXME CHECK
-    # metadata["nroll"] = 2  # FIXME CHECK
 
     metadata = metadata.set_index(['event_id', 'station_id'], drop=True)
     return metadata
@@ -418,8 +404,7 @@ def post_process(
     if 'filter_type' not in metadata:
         if metadata['.FILTER_TYPE'] == 'BUTTERWORTH':
             metadata['filter_type'] = 'A'
-            metadata['npass'] = int(metadata['.FILTER_ORDER'] or 0)
-            metadata['nroll'] = int(metadata['.FILTER_ORDER'] or 0)
+            metadata['filter_order'] = int(metadata['.FILTER_ORDER'] or 0)
 
     low_cutoff = metadata.get('.LOW_CUT_FREQUENCY_HZ')
     high_cutoff = metadata.get('.HIGH_CUT_FREQUENCY_HZ')

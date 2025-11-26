@@ -76,10 +76,10 @@ source_metadata_fields = {
     # 'azimuth': metadata.get(54),
     'Repi': 'epicentral_distance',
     'Rhypo': 'hypocentral_distance',
-    'RJB_0': None,
-    'RJB_1': None,
-    'Rrup_0': None,
-    'Rrup_1': None,
+    'RJB_0': 'joyner_boore_distance',
+    'RJB_1': 'joyner_boore_distance2',
+    'Rrup_0': 'rupture_distance',
+    'Rrup_1': 'rupture_distance2',
     # 'fault_normal_distance': None,
     "evLat._Meta": 'event_latitude',
     "evLong._Meta": 'event_longitude',
@@ -275,8 +275,7 @@ def post_process(
     metadata["vs30measured"] = metadata["vs30measured"] in {1, "1", 1.0}
     metadata["region"] = 0
     metadata["filter_type"] = "A"
-    metadata["npass"] = 0
-    metadata["nroll"] = 0
+    metadata["filter_order"] = 4
     metadata["lower_cutoff_frequency_h2"] = metadata["lower_cutoff_frequency_h1"]
     metadata["upper_cutoff_frequency_h2"] = metadata["upper_cutoff_frequency_h1"]
     metadata["lowest_usable_frequency_h1"] = metadata["lower_cutoff_frequency_h1"]

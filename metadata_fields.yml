@@ -156,14 +156,9 @@ filter_type:
   help: >- 
     Type of filter used to remove noise at long and short periods. 
     O: Ormsby, A: Acausal Butterworth, C Causal butterworth
-npass:
+filter_order:
   dtype: int
-  help: number of passes of filter. 0 when not applicable / not available
-  default: 0
-nroll:
-  dtype: float
-  help: the `nroll` parameter of the Butterworth filter. 0 when missing (NA)
-  default: 0
+  help: the filter order. 0 when not applicable / not available
 lower_cutoff_frequency_h1:
   dtype: float
   help: corner frequency of the high-pass filter of component H1, in Hz
