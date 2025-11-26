@@ -78,7 +78,7 @@ source_metadata_fields = {
 
     "ev_latitude": "event_latitude",
     "ev_longitude": "event_longitude",
-    "ev_depth": "event_depth",
+    "ev_depth_km": "event_depth",
     "EMEC_Mw": "magnitude",
     "Mw": None,
     "ML": None,
@@ -96,8 +96,8 @@ source_metadata_fields = {
 
     # vs30measured is a boolean expression; treated as key
     # "Measured/Inferred Class": "vs30measured",
-    "Station Latitude": "st_latitude",
-    "Station Longitude": "st_longitude",
+    "st_latitude": "station_latitude",
+    "st_longitude": "station_longitude",
     # "Northern CA/Southern CA - H11 Z1 (m)": "z1",
     # "Northern CA/Southern CA - H11 Z2.5 (m)": "z2pt5",
 
@@ -586,7 +586,8 @@ def main():  # noqa
         columns={k: v for k, v in source_metadata_fields.items() if v is not None}    # RHB1 and SITE_CLASSIFICATION_EC8  # FIXME DO!
     )
     old_len = len(metadata)
-    metadata = pre_process(metadata.dropna(subset=['event_id', 'station_id']))
+    metadata = pre_process(metadata)
+    metadata = metadata.dropna(subset=['event_id', 'station_id'])
     if len(metadata) < old_len:
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')

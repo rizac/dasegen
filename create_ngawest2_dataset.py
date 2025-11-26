@@ -367,7 +367,8 @@ def main():  # noqa
         columns={k: v for k, v in source_metadata_fields.items() if v is not None}    # RHB1 and SITE_CLASSIFICATION_EC8  # FIXME DO!
     )
     old_len = len(metadata)
-    metadata = pre_process(metadata.dropna(subset=['event_id', 'station_id']))
+    metadata = pre_process(metadata)
+    metadata = metadata.dropna(subset=['event_id', 'station_id'])
     if len(metadata) < old_len:
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')
