@@ -36,7 +36,7 @@ from dataclasses import dataclass
 class Waveform:
     """Simple class handling a Waveform (Time History single component)"""
     dt: float
-    data: Sequence[float]
+    data: ndarray[float]
 
 
 ########################################################################
@@ -58,6 +58,7 @@ source_metadata_csv_args = {
     # 'dtype': {}  # NOT RECOMMENDED: this might interfere with the default field dtypes
     # 'usecols': []  # NOT RECOMMENDED: this might interfere with the default field names
 }
+
 # Mapping from source metadata columns to their new names. Map to None to skip renaming
 # and just load the column data
 source_metadata_fields = {
@@ -223,7 +224,7 @@ def read_waveform(file_path: str, content: BytesIO, metadata: pd.Series) -> Wave
                 raise ValueError('dt /scale nom / scale denom not found')
             break
     rest = content.read()
-    data: np.ndarray = np.fromstring(rest, sep=" ", dtype=np.float32)
+    data = np.fromstring(rest, sep=" ", dtype=np.float32)
     # data = np.loadtxt(fp, dtype=np.float32)
     data *= scale_nom / scale_denom / 100.  # the 100. is to convert to m/s**2
     return Waveform(dt, data)

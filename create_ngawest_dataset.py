@@ -36,7 +36,7 @@ from dataclasses import dataclass
 class Waveform:
     """Simple class handling a Waveform (Time History single component)"""
     dt: float
-    data: Sequence[float]
+    data: ndarray[float]
 
 
 ########################################################################
