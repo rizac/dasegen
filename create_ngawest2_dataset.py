@@ -348,6 +348,11 @@ def main():  # noqa
         print(exc, file=sys.stderr)
         sys.exit(1)
 
+    mandatory_fields = [
+        m for m in metadata_fields
+        if '[mandatory]' in metadata_fields[m].get('help', '').lower()
+    ]
+
     print(f'Scanning source waveforms directory...', end=" ", flush=True)
     files = scan_dir(source_waveforms_path)
     print(f'{len(files):,} file(s) found')
@@ -427,6 +432,9 @@ def main():  # noqa
                 dtype = metadata_fields[f]['dtype']
                 try:
                     clean_record[f] = cast_dtype(val, dtype)
+                    if f in mandatory_fields and pd.isna(clean_record[f]):
+                        val = 'N/A'
+                        raise AssertionError()
                 except AssertionError:
                     raise AssertionError(f'Invalid value for "{f}": {str(val)}')
 
@@ -570,10 +578,10 @@ def get_metadata_fields(dest_path):
         # convert dtypes:
         for m in metadata_fields:
             field = metadata_fields[m]
-            if isinstance(field['dtype'], (list, tuple)):
-                assert 'default' not in field or field['default'] in m['dtype']
-                field['dtype'] = pd.CategoricalDtype(field['dtype'])
-
+            field_dtype = field['dtype']
+            if isinstance(field_dtype, (list, tuple)):
+                assert 'default' not in field or field['default'] in field_dtype
+                field['dtype'] = pd.CategoricalDtype(field_dtype)
     return metadata_fields
 
 

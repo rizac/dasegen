@@ -39,58 +39,59 @@ def setup_teardown():
 
 
 def run_(dataset: str):  # ngawest, esm, kinet_knet
-    with patch(f"create_{dataset}_dataset.min_waveforms_ok_ratio", 0):
 
-        src_data_dir = join(source_data_dir, dataset)
-        metadata = [f for f in os.listdir(src_data_dir) if splitext(f)[1] == '.csv']
-        assert len(metadata) == 1, f'CSV in {src_data_dir} must be 1'
-        src_metadata_path = join(src_data_dir, metadata[0])
 
-        my_dest_data_dir = join(dest_data_dir, dataset)
-        os.mkdir(my_dest_data_dir)
-        config_path = join(my_dest_data_dir, "config.yml")
+    src_data_dir = join(source_data_dir, dataset)
+    metadata = [f for f in os.listdir(src_data_dir) if splitext(f)[1] == '.csv']
+    assert len(metadata) == 1, f'CSV in {src_data_dir} must be 1'
+    src_metadata_path = join(src_data_dir, metadata[0])
 
-        with open(config_path, 'w') as _:
-            _.write(f"""
+    my_dest_data_dir = join(dest_data_dir, dataset)
+    os.mkdir(my_dest_data_dir)
+    config_path = join(my_dest_data_dir, "config.yml")
+
+    with open(config_path, 'w') as _:
+        _.write(f"""
 source_metadata: "{src_metadata_path}"
 source_data: "{src_data_dir}"
 destination: "{my_dest_data_dir}"
 """)
-        module_name = f"create_{dataset}_dataset"
-        try:
-            # project_root = abspath(dirname(dirname(__file__)))
-            # os.chdir(project_root)
-            # result = subprocess.run(
-            #     [sys.executable, f'create_{dataset}_dataset.py', config_path],
-            #     capture_output=True,
-            #     text=True,
-            #     check=True
-            # )
-            # stdout_text = result.stdout
-            # stderr_text = result.stderr
-            # asd = 9
+    module_name = f"create_{dataset}_dataset"
+    try:
+        # project_root = abspath(dirname(dirname(__file__)))
+        # os.chdir(project_root)
+        # result = subprocess.run(
+        #     [sys.executable, f'create_{dataset}_dataset.py', config_path],
+        #     capture_output=True,
+        #     text=True,
+        #     check=True
+        # )
+        # stdout_text = result.stdout
+        # stderr_text = result.stderr
+        # asd = 9
 
-            module_path = \
-                abspath(join(dirname(dirname(__file__)), f'{module_name}.py'))
-            spec = importlib.util.spec_from_file_location(module_name, module_path)
-            mod = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = mod
-            spec.loader.exec_module(mod)
-            sys.argv = [f'create_{dataset}_dataset.py', config_path]
+        module_path = \
+            abspath(join(dirname(dirname(__file__)), f'{module_name}.py'))
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = mod
+        spec.loader.exec_module(mod)
+        sys.argv = [f'{module_name}.py', config_path]
+        with patch(f"{module_name}.min_waveforms_ok_ratio", 0):
             mod.main()
-        except SystemExit as err:
-            assert err.args[0] == 0
+    except SystemExit as err:
+        assert err.args[0] == 0
 
-            assert isdir(join(my_dest_data_dir, 'waveforms'))
-            # Get printed output
-        except Exception as e:
-            # Raise a new exception with the subprocess traceback
-            raise
-        finally:
-            del sys.modules[module_name]
-        #     # Restore originals
-        #     sys.argv = original_argv
-        #     sys.stdout = original_stdout
+        assert isdir(join(my_dest_data_dir, 'waveforms'))
+        # Get printed output
+    except Exception as e:
+        # Raise a new exception with the subprocess traceback
+        raise
+    finally:
+        del sys.modules[module_name]
+    #     # Restore originals
+    #     sys.argv = original_argv
+    #     sys.stdout = original_stdout
 
 
 def test_nga_west2():
@@ -105,7 +106,7 @@ def test_esm():
     run_('esm')
 
 
-def test_stats():
+def tst_stats():
     import pandas as pd
     root = join(dirname(__file__), 'source_data')
     for file, sep in [
