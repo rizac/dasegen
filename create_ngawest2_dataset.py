@@ -470,13 +470,12 @@ def main():  # noqa
 
             # save waveforms
             file_path = join(dest_waveforms_path, get_file_path(clean_record))
+            total_waveforms += 1
             if not isfile(file_path):
                 save_waveforms(file_path, h1, h2, v)
                 saved_waveforms += 1
-            else:
-                total_waveforms += 1
-                if raise_if_file_exists:
-                    raise ValueError(f'Waveforms file already exists: {file_path}')
+            elif raise_if_file_exists:
+                raise ValueError(f'Waveforms file already exists: {file_path}')
 
             # save metadata:
             records.append(clean_record)
