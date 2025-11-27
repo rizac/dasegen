@@ -531,11 +531,15 @@ def scan_dir(source_root_dir) -> set[str]:
         if accept_file(file_path):
             files.add(file_path)
         elif splitext(entry.name)[1].lower() == '.zip':
-            with zipfile.ZipFile(file_path, 'r') as z:
-                for name in z.namelist():
-                    file_path2 = join(file_path, name)
-                    if accept_file(file_path2):
-                        files.add(file_path2)
+            try:
+                with zipfile.ZipFile(file_path, 'r') as z:
+                    for name in z.namelist():
+                        file_path2 = join(file_path, name)
+                        if accept_file(file_path2):
+                            files.add(file_path2)
+            except zipfile.BadZipFile as exc:
+                logging.info(f'Skipping bad zip file: {file_path}')
+                pass
     return files
 
 
