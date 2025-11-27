@@ -480,7 +480,7 @@ def main():  # noqa
 
         except Exception as exc:
             fname, lineno = exc_func_and_lineno(exc, __file__)
-            logging.error(f"[ERROR] {exc}. In '{fname}', line {lineno}")
+            logging.error(f"{exc}. File: {file}. Function {fname}, line {lineno}")
             errs += 1
         finally:
             pbar.update(num_files)

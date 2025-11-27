@@ -234,7 +234,7 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
         try:
             meta = metadata.loc[(ev_id, sta_id)]
         except KeyError:
-            meta = {}
+            meta = pd.Series()
 
         file_path_n = join(dirname(file_path), f'{sta_id}N{file_suffix}')
         file_path_e = join(dirname(file_path), f'{sta_id}E{file_suffix}')
@@ -698,7 +698,7 @@ def main():  # noqa
 
         except Exception as exc:
             fname, lineno = exc_func_and_lineno(exc, __file__)
-            logging.error(f"[ERROR] {exc}. In '{fname}', line {lineno}")
+            logging.error(f"{exc}. File: {file}. Function {fname}, line {lineno}")
             errs += 1
         finally:
             pbar.update(num_files)
