@@ -371,12 +371,6 @@ def main():  # noqa
     files = scan_dir(source_waveforms_path)
     print(f'{len(files):,} file(s) found')
 
-    pbar = tqdm(
-        total=len(files),
-        bar_format="{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
-                   "(estimated remaining time {remaining}s)"
-    )
-
     print(f'Reading source metadata file...', end=" ", flush=True)
     csv_args: dict[str, Any] = dict(source_metadata_csv_args)
     # csv_args.setdefault('chunksize', 10000)
@@ -398,6 +392,11 @@ def main():  # noqa
           f'{old_len - len(metadata)} row(s) removed')
 
     print(f'Creating harmonized dataset from source')
+    pbar = tqdm(
+        total=len(files),
+        bar_format="{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
+                   "(estimated remaining time {remaining}s)"
+    )
     records = []
     item_num = 0
     errs = 0
