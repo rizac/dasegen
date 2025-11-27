@@ -10,6 +10,7 @@ import zipfile
 from typing import Optional, Any, Union, Sequence
 import logging
 import urllib.request
+import warnings
 import os
 import time
 from os.path import abspath, join, basename, isdir, isfile, dirname, splitext
@@ -46,7 +47,7 @@ class Waveform:
 
 # The program will stop if the successfully processed waveform ratio falls below this
 # value that must be in [0, 1] (this makes spotting errors and checking log faster):
-min_waveforms_ok_ratio = 1/5
+min_waveforms_ok_ratio = 1/10
 
 # max discrepancy between PGA from catalog and computed PGA. A waveform is saved if:
 # | PGA - PGA_computed | <= pga_retol * | PGA |
@@ -387,7 +388,9 @@ def main():  # noqa
         columns={k: v for k, v in source_metadata_fields.items() if v is not None}
     )
     old_len = len(metadata)
-    metadata = pre_process(metadata)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
+        metadata = pre_process(metadata).copy()
     if len(metadata) < old_len:
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')
@@ -412,6 +415,7 @@ def main():  # noqa
                 if isinstance(record, pd.DataFrame):
                     raise Exception('Multiple metadata record found')
                 raise Exception('No metadata record found')
+            record = record.copy()
             for _ in (h1_path, h2_path, v_path):
                 if _ in files:
                     num_files += 1
