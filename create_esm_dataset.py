@@ -394,7 +394,7 @@ def post_process(
     is_na = pd.isna
 
     # process remaining data:
-    if 'station_id' not in metadata:
+    if is_na(metadata.get('station_id')):
         metadata['station_id'] = ".".join([
             metadata['.NETWORK'],
             metadata['.STATION_CODE'],
