@@ -1,5 +1,6 @@
-This package can be downloaded and modified for generating datasets 
-of processed time histories (accelerometers).
+A package containing scripts for the generation of
+harmonized time histories (accelerometers) datasets from heterogeneous
+sources
 
 # Installation
 

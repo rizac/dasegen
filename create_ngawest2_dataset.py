@@ -1,7 +1,7 @@
 """
-Python script for the generation of a Time histories database.
-To create a new database, copy/rename this file and modify the editable
-part of this module. See instructions below and README.md fir details
+Python module to be executed as script to generate a new harmonized dataset from
+heterogeneous sources. For a new dataset, copy rename this or any look-alike modules in
+this directory and modify the editable part (see below). More details in README.md
 """
 from __future__ import annotations
 

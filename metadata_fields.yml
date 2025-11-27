@@ -59,10 +59,9 @@ origin_time:
 origin_time_resolution:
   dtype: ['Y', 'M', 'D', 'H', 'm', 's']
   help: >-
-    Smallest resolution of the origin time. Y: year, M: month, D: day, H: hour, 
-    m: minute, s: second. For a given resolution unit, all origin time smaller units have
-    to be considered meaningless and are arbitrarily set to the smallest possible value 
-    (i.e., 1 for days and months, 0 for hours minutes and seconds) [Mandatory]
+    Origin time resolution. Y: year, M: month, D: day, H: hour, m: minute, s: second. 
+    All units smaller than the given resolution are N/A and arbitrarily set to the 
+    default (usually 1 for days and months, 0 for hours minutes and seconds) [Mandatory]
 event_latitude:
   dtype: float
   help: event latitude (hypocenter latitude, in deg) in [-90, 90]  [Mandatory]
