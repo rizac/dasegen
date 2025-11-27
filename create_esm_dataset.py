@@ -610,6 +610,8 @@ def main():  # noqa
     records = []
     item_num = 0
     errs = 0
+    saved_waveforms = 0
+    total_waveforms = 0
     while len(files):
         num_files = 1
         file = files.pop()
@@ -680,8 +682,11 @@ def main():  # noqa
             file_path = join(dest_waveforms_path, get_file_path(clean_record))
             if not isfile(file_path):
                 save_waveforms(file_path, h1, h2, v)
-            elif raise_if_file_exists:
-                raise ValueError(f'Waveforms file already exists: {file_path}')
+                saved_waveforms += 1
+            else:
+                total_waveforms += 1
+                if raise_if_file_exists:
+                    raise ValueError(f'Waveforms file already exists: {file_path}')
 
             # save metadata:
             records.append(clean_record)
@@ -719,6 +724,10 @@ def main():  # noqa
         )
 
     pbar.close()
+    msg = f'Dataset created: {total_waveforms} waveform(s), ' \
+          f'({saved_waveforms} newly created)'
+    print(msg)
+    logging.info(msg)
     sys.exit(0)
 
 
