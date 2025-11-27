@@ -47,7 +47,7 @@ class Waveform:
 
 # The program will stop if the successfully processed waveform ratio falls below this
 # value that must be in [0, 1] (this makes spotting errors and checking log faster):
-min_waveforms_ok_ratio = 1/10
+min_waveforms_ok_ratio = 1/100
 
 # max discrepancy between PGA from catalog and computed PGA. A waveform is saved if:
 # | PGA - PGA_computed | <= pga_retol * | PGA |
