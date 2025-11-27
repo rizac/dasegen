@@ -81,8 +81,14 @@ destination: "{my_dest_data_dir}"
             mod.main()
     except SystemExit as err:
         assert err.args[0] == 0
-
-        assert isdir(join(my_dest_data_dir, 'waveforms'))
+        w_dir = join(my_dest_data_dir, 'waveforms')
+        assert isdir(w_dir)
+        some_file = False
+        for _, _, files in os.walk(w_dir):
+            if files and any(splitext(_)[1] == '.h5' for _ in files):  # If `files` list is not empty
+                some_file = True
+                break  # Directory contains at least one file
+        assert some_file
         # Get printed output
     except Exception as e:
         # Raise a new exception with the subprocess traceback

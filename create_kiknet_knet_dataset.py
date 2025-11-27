@@ -411,10 +411,12 @@ def main():  # noqa
             comps = {}
             for cmp_name, cmp_path in zip(('h1', 'h2', 'v'), (h1_path, h2_path, v_path)):
                 comps[cmp_name] = None
-                if cmp_path and isfile(cmp_path):
-                    with open_file(cmp_path) as file_p:
-                        comps[cmp_name] = read_waveform(cmp_path, file_p, record)
-
+                if cmp_path:
+                    try:
+                        with open_file(cmp_path) as file_p:
+                            comps[cmp_name] = read_waveform(cmp_path, file_p, record)
+                    except OSError:
+                        pass
             if all(_ is None for _ in comps.values()):
                 raise Exception('No waveform read')
             if len(set(_.dt for _ in comps.values() if _ is not None)) != 1:
@@ -560,22 +562,25 @@ def open_file(file_path) -> BytesIO:
     returned by `scan_dir`
     """
     fp_lower = file_path.lower()
-    if f".zip{os.sep}" in fp_lower:
-        idx = fp_lower.index(".zip")
-        zip_path, inner_path = file_path[:idx + 4], file_path[idx + 5:]
-        with zipfile.ZipFile(zip_path, "r") as z:
-            data = z.read(inner_path)
-    elif fp_lower.endswith(".zip"):
-        zip_path = file_path
-        with zipfile.ZipFile(zip_path, "r") as z:
-            namelist = z.namelist()
-            if len(namelist) != 1:
-                raise ValueError(
-                    f"{file_path} contains {len(namelist)} files, expected one only")
-            data = z.read(namelist[0])
-    else:
-        with open(file_path, "rb") as f:
-            data = f.read()
+    try:
+        if f".zip{os.sep}" in fp_lower:
+            idx = fp_lower.index(".zip")
+            zip_path, inner_path = file_path[:idx + 4], file_path[idx + 5:]
+            with zipfile.ZipFile(zip_path, "r") as z:
+                data = z.read(inner_path)
+        elif fp_lower.endswith(".zip"):
+            zip_path = file_path
+            with zipfile.ZipFile(zip_path, "r") as z:
+                namelist = z.namelist()
+                if len(namelist) != 1:
+                    raise OSError(
+                        f"{file_path} contains {len(namelist)} files, expected one only")
+                data = z.read(namelist[0])
+        else:
+            with open(file_path, "rb") as f:
+                data = f.read()
+    except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile, KeyError) as e:
+        raise OSError(f"Failed to read {file_path}: {e}") from e
 
     return BytesIO(data)
 
