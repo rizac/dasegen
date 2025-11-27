@@ -510,10 +510,13 @@ def read_script_args(sys_argv):
     try:
         with open(yaml_path) as _:
             data = yaml.safe_load(_)
+        assert isfile(data['source_metadata']), \
+            f"'source_metadata' is not a file: {data['source_metadata']}"
+        assert isdir(data['source_data']), \
+            f"'source_data' is not a directory: {data['source_data']}"
         return data['source_metadata'], data['source_data'], data['destination']
-
     except Exception as exc:
-        raise ValueError(f'Error: {yaml_path} error: {exc}')
+        raise ValueError(f'Yaml error ({basename(yaml_path)}): {exc}')
 
 
 def setup_logging(filename):
