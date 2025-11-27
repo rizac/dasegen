@@ -322,18 +322,20 @@ def main():  # noqa
     print(f"Destination metadata path: {dest_metadata_path}")
 
     existing = isfile(dest_metadata_path) or isdir(dest_waveforms_path)
-
+    raise_if_file_exists = False
     if existing:
         res = input(
-            f'Some destination data already exists. Type:\n '
-            f'y: delete and re-create all data\n'
-            f'm: delete and re-create metadata, save only new waveform files\n'
-            f'Any key: quit'
+            f'\nSome destination data already exists. Type:'
+            f'\ny: delete and re-create all data'
+            f'\nm: delete and re-create metadata, save only new waveform files'
+            f'\nAny key: quit\n'
         )
         if res not in ('y', 'm'):
             sys.exit(1)
-        if res == 'y' and isdir(dest_waveforms_path):
-            shutil.rmtree(dest_waveforms_path)
+        if res == 'y':
+            raise_if_file_exists = True  # no accidental writing files with same name
+            if isdir(dest_waveforms_path):
+                shutil.rmtree(dest_waveforms_path)
 
     if isfile(dest_metadata_path):
         os.unlink(dest_metadata_path)
@@ -459,16 +461,22 @@ def main():  # noqa
                 pd.notna(sampling_rate) else \
                 int(metadata_fields['sampling_rate']['default'])
 
-            # save metadata:
-            records.append(clean_record)
-            if len(records) > 1000:
-                save_metadata(dest_metadata_path, pd.DataFrame(records), metadata_fields)
-                records = []
-
             # save waveforms
             file_path = join(dest_waveforms_path, get_file_path(clean_record))
             if not isfile(file_path):
                 save_waveforms(file_path, h1, h2, v)
+            elif raise_if_file_exists:
+                raise ValueError(f'Waveforms file already exists: {file_path}')
+
+            # save metadata:
+            records.append(clean_record)
+            if len(records) > 1000:
+                save_metadata(
+                    dest_metadata_path,
+                    pd.DataFrame(records),
+                    metadata_fields
+                )
+                records = []
 
         except Exception as exc:
             fname, lineno = exc_func_and_lineno(exc, __file__)
