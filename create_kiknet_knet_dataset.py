@@ -368,7 +368,11 @@ def main():  # noqa
     csv_args.setdefault(
         'usecols', csv_args.get('usecols', {}) | source_metadata_fields.keys()
     )
-    metadata = pd.read_csv(source_metadata_path, **csv_args)
+    with warnings.catch_warnings(record=True) as _w_:
+        warnings.simplefilter("always", pd.errors.DtypeWarning)
+        metadata = pd.read_csv(source_metadata_path, **csv_args)
+        if _w_:
+            print(f'({_w_[0].message})', end=" ", flush=True)
     metadata = metadata.rename(
         columns={k: v for k, v in source_metadata_fields.items() if v is not None}
     )
