@@ -393,6 +393,9 @@ def post_process(
     not_na = pd.notna
     is_na = pd.isna
 
+    if is_na(metadata.get('event_id')):
+        metadata['event_id'] = metadata[".EVENT_ID"]
+
     # process remaining data:
     if is_na(metadata.get('station_id')):
         metadata['station_id'] = ".".join([
@@ -453,13 +456,9 @@ def post_process(
 
     if is_na(metadata.get('origin_time')) and metadata.get('.EVENT_DATE_YYYYMMDD'):
         date = metadata['.EVENT_DATE_YYYYMMDD']
-        metadata['origin_time'] = datetime(
-            year=int(date[:4]),
-            month=int(date[4:6]),
-            day=int(date[6:]),
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        metadata['origin_time_resolution'] = 'D'
+        year = int(date[:4])
+        month = int(date[4:6])
+        day = int(date[6:])
         if metadata.get('.EVENT_TIME_HHMMSS'):
             dtime = metadata['.EVENT_TIME_HHMMSS']
             metadata['origin_time_resolution'] = 's'
@@ -472,23 +471,36 @@ def post_process(
                 second=int(dtime[4:6]),
                 microsecond=0
             )
+        else:
+            metadata['origin_time_resolution'] = 'D'
+            metadata['origin_time'] = datetime(
+                year=year,
+                month=month,
+                day=day,
+                hour=0, minute=0, second=0, microsecond=0
+            )
 
+    s_time = metadata.get(".DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS")
+    if is_na(metadata.get('start_time')) and s_time:
+        metadata['start_time'] = datetime.strptime(s_time, "%Y%m%d_%H%M%S")
+
+    # set float elements:
     for key, new_key in {
-        'EVENT_ID': 'event_id',
+        # 'EVENT_ID': 'event_id',
         'EVENT_LATITUDE_DEGREE': 'event_latitude',
         'EVENT_LONGITUDE_DEGREE': 'event_longitude',
         'EVENT_DEPTH_KM': 'event_depth',
         'STATION_LATITUDE_DEGREE': 'station_latitude',
         'STATION_LONGITUDE_DEGREE': 'station_longitude',
-        'STATION_ELEVATION_M': 'station_height',
+        # 'STATION_ELEVATION_M': 'station_height',
         # 'SENSOR_DEPTH_M': None,  # FIXME CHECK
         'VS30_M/S': 'vs30',
         # 'SITE_CLASSIFICATION_EC8': None,
         'EPICENTRAL_DISTANCE_KM': 'epicentral_distance',
-        'DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS': 'start_time',
+        # 'DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS': 'start_time',
     }.items():
-        if is_na(metadata.get(new_key)):
-            metadata[new_key] = metadata[f".{key}"]
+        if is_na(metadata.get(new_key)) and metadata.get(f".{key}"):
+            metadata[new_key] = float(metadata[f".{key}"])
 
     if is_na(metadata.get('vs30')) and not_na(metadata.get('SITE_CLASSIFICATION_EC8')):
         val = {
