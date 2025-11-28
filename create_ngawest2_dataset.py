@@ -138,8 +138,9 @@ def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
     metadata['station_id'] = metadata['station_id'].astype('category')
     # set fpath as index (+ some prefix addition):
     for col in cols:
-        assert not metadata[col].str.startswith('RSN').any()
         metadata[col] = metadata[col].str.strip()
+        assert not metadata[col].str.startswith('RSN_').any()
+        metadata[col] = metadata[col].str.removeprefix('RSN')
     metadata = metadata.set_index(cols, drop=True)
     return metadata
 
@@ -161,12 +162,11 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
     file_basename = basename(file_path)
     rsn = None
     rsn_prefix = ''
-    pattern = re.compile(r'^RSN_?(\d+)_')
-    match = pattern.match(file_basename)
-    if match:
-        rsn = match.group(1)
-        rsn_prefix = match.group(0)
-        file_basename = file_basename.removeprefix(rsn_prefix)
+    if file_basename.startswith('RSN'):
+        rsn_prefix = 'RSN'
+        file_basename = file_basename.removeprefix('RSN')
+        if '_' in file_basename:
+            rsn = file_basename.split('_')[0]
 
     root_dir = dirname(file_path)
 
