@@ -449,7 +449,7 @@ def post_process(
                              f"{metadata['.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS']}")
 
     if is_na(metadata.get('PGA')) and metadata.get('.PGA_CM/S^2'):
-        metadata['PGA'] = metadata['.PGA_CM/S^2'] / 100
+        metadata['PGA'] = float(metadata['.PGA_CM/S^2']) / 100
 
     if is_na(metadata.get('origin_time')) and metadata.get('.EVENT_DATE_YYYYMMDD'):
         date = metadata['.EVENT_DATE_YYYYMMDD']
@@ -607,8 +607,7 @@ def main():  # noqa
     print(f'Creating harmonized dataset from source')
     pbar = tqdm(
         total=len(files),
-        bar_format="{percentage:3.0f}%|{bar}| {postfix} | "
-                   "~{remaining}s remaining"
+        bar_format="{percentage:3.0f}%|{bar}| {postfix_str} | ~{remaining}s remaining"
     )
     records = []
     item_num = 0

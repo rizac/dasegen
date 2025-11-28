@@ -398,8 +398,7 @@ def main():  # noqa
     print(f'Creating harmonized dataset from source')
     pbar = tqdm(
         total=len(files),
-        bar_format="{percentage:3.0f}%|{bar}| {postfix} | "
-                   "~{remaining}s remaining"
+        bar_format="{percentage:3.0f}%|{bar}| {postfix_str} | ~{remaining}s remaining"
     )
     records = []
     item_num = 0
