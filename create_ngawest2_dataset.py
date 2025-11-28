@@ -405,8 +405,7 @@ def main():  # noqa
     item_num = 0
     errs = 0
     saved_waveforms = 0
-    total_waveforms = 0
-    total_records = 0
+    total_waveforms = len(files)
     while len(files):
         num_files = 1
         file = files.pop()
@@ -475,17 +474,15 @@ def main():  # noqa
 
             # save waveforms
             file_path = join(dest_waveforms_path, get_file_path(clean_record))
-            total_waveforms += 1
+            saved_waveforms += 1
             if not isfile(file_path):
                 save_waveforms(file_path, h1, h2, v)
-                saved_waveforms += 1
             elif raise_if_file_exists:
                 raise ValueError(f'Waveforms file already exists: {file_path}')
 
             # save metadata:
             records.append(clean_record)
             if len(records) > 1000:
-                total_records += len(records)
                 save_metadata(
                     dest_metadata_path,
                     pd.DataFrame(records),
@@ -498,9 +495,10 @@ def main():  # noqa
             logging.error(f"{exc}. File: {file}. Function {fname}, line {lineno}")
             errs += 1
         finally:
+            saved_ratio = int(100 * saved_waveforms / (total_waveforms/3))
             pbar.set_postfix(
-                waveforms=f"{total_waveforms:,}",
-                records=f"{total_records:,}")
+                saved_waveforms=f"{saved_waveforms:,} (~{saved_ratio}%)"
+            )
             pbar.update(num_files)
 
         if pbar.n / pbar.total > (1 - min_waveforms_ok_ratio):
@@ -514,7 +512,6 @@ def main():  # noqa
                 sys.exit(1)
 
     if len(records):
-        total_records += len(records)
         save_metadata(dest_metadata_path, pd.DataFrame(records), metadata_fields)
     if isfile(dest_metadata_path):
         os.chmod(
@@ -523,8 +520,8 @@ def main():  # noqa
         )
 
     pbar.close()
-    msg = f'Dataset created: {total_waveforms} waveform(s), ' \
-          f'({saved_waveforms} newly created)'
+    msg = f'Dataset created: {saved_waveforms} waveform(s) ' \
+          f'(either already or newly created, depending on settings)'
     print(msg)
     logging.info(msg)
     sys.exit(0)
