@@ -553,7 +553,7 @@ def main():  # noqa
     if not isdir(dest_root_path):
         os.makedirs(dest_root_path)
 
-    dest_log_path = join(dest_root_path, basename(__file__) + ".log")
+    dest_log_path = join(dest_root_path, "dataset_creation.log")
     setup_logging(dest_log_path)
 
     logging.info(f'Working directory: {abspath(os.getcwd())}')
