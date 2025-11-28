@@ -3,7 +3,7 @@ import importlib.util
 import shutil
 import os
 import sys
-from os.path import dirname, join, abspath, isdir, splitext, basename
+from os.path import dirname, join, abspath, isdir, splitext, basename, isfile
 from io import StringIO, BytesIO
 import subprocess
 from unittest.mock import patch
@@ -81,6 +81,8 @@ destination: "{my_dest_data_dir}"
             mod.main()
     except SystemExit as err:
         assert err.args[0] == 0
+        w_file = join(my_dest_data_dir, 'metadata.hdf')
+        assert isfile(w_file)
         w_dir = join(my_dest_data_dir, 'waveforms')
         assert isdir(w_dir)
         some_file = False
@@ -112,7 +114,7 @@ def test_esm():
     run_('esm')
 
 
-def tst_stats():
+def tst_source_metadata_stats():
     import pandas as pd
     root = join(dirname(__file__), 'source_data')
     for file, sep in [

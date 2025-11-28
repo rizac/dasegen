@@ -607,14 +607,15 @@ def main():  # noqa
     print(f'Creating harmonized dataset from source')
     pbar = tqdm(
         total=len(files),
-        bar_format="{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
-                   "(estimated remaining time {remaining}s)"
+        bar_format="{percentage:3.0f}%|{bar}| {postfix} "
+                   "(~ {remaining}s remaining)"
     )
     records = []
     item_num = 0
     errs = 0
     saved_waveforms = 0
     total_waveforms = 0
+    total_records = 0
     while len(files):
         num_files = 1
         file = files.pop()
@@ -693,6 +694,7 @@ def main():  # noqa
             # save metadata:
             records.append(clean_record)
             if len(records) > 1000:
+                total_records += len(records)
                 save_metadata(
                     dest_metadata_path,
                     pd.DataFrame(records),
@@ -705,6 +707,9 @@ def main():  # noqa
             logging.error(f"{exc}. File: {file}. Function {fname}, line {lineno}")
             errs += 1
         finally:
+            pbar.set_postfix(
+                waveforms=f"{total_waveforms:,}",
+                records=f"{total_records:,}")
             pbar.update(num_files)
 
         if pbar.n / pbar.total > (1 - min_waveforms_ok_ratio):
@@ -717,9 +722,10 @@ def main():  # noqa
                 logging.error(msg)
                 sys.exit(1)
 
+    if len(records):
+        total_records += len(records)
+        save_metadata(dest_metadata_path, pd.DataFrame(records), metadata_fields)
     if isfile(dest_metadata_path):
-        if len(records):
-            save_metadata(dest_metadata_path, pd.DataFrame(records), metadata_fields)
         os.chmod(
             dest_metadata_path,
             os.stat(dest_metadata_path).st_mode | stat.S_IRGRP | stat.S_IROTH
