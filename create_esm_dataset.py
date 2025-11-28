@@ -463,9 +463,9 @@ def post_process(
         metadata['origin_time_resolution'] = 'D'
         if metadata.get('.EVENT_TIME_HHMMSS'):
             dtime = metadata['.EVENT_TIME_HHMMSS']
-            hour = int(dtime[:2]),
-            minute = int(dtime[2:4]),
-            second = int(dtime[4:6]),
+            hour = int(dtime[:2])
+            minute = int(dtime[2:4])
+            second = int(dtime[4:6])
             metadata['origin_time_resolution'] = 's'
         metadata['origin_time'] = datetime(
             year=year,
