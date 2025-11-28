@@ -459,26 +459,23 @@ def post_process(
         year = int(date[:4])
         month = int(date[4:6])
         day = int(date[6:])
+        hour, minute, second = 0, 0, 0
+        metadata['origin_time_resolution'] = 'D'
         if metadata.get('.EVENT_TIME_HHMMSS'):
             dtime = metadata['.EVENT_TIME_HHMMSS']
+            hour = int(dtime[:2]),
+            minute = int(dtime[2:4]),
+            second = int(dtime[4:6]),
             metadata['origin_time_resolution'] = 's'
-            metadata['origin_time'] = datetime(
-                year=date.year,
-                month=date.month,
-                day=date.day,
-                hour=int(dtime[:2]),
-                minute=int(dtime[2:4]),
-                second=int(dtime[4:6]),
-                microsecond=0
-            )
-        else:
-            metadata['origin_time_resolution'] = 'D'
-            metadata['origin_time'] = datetime(
-                year=year,
-                month=month,
-                day=day,
-                hour=0, minute=0, second=0, microsecond=0
-            )
+        metadata['origin_time'] = datetime(
+            year=year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            second=second,
+            microsecond=0
+        )
 
     s_time = metadata.get(".DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS")
     if is_na(metadata.get('start_time')) and s_time:
@@ -502,14 +499,14 @@ def post_process(
         if is_na(metadata.get(new_key)) and metadata.get(f".{key}"):
             metadata[new_key] = float(metadata[f".{key}"])
 
-    if is_na(metadata.get('vs30')) and not_na(metadata.get('SITE_CLASSIFICATION_EC8')):
+    if is_na(metadata.get('vs30')) and not_na(metadata.get('.SITE_CLASSIFICATION_EC8')):
         val = {
             "A": 900,
             "B": 580,
             "C": 270,
             "D": 150,
             "E": 100
-        }.get(metadata['SITE_CLASSIFICATION_EC8'])
+        }.get(metadata['.SITE_CLASSIFICATION_EC8'])
         if not_na(val):
             metadata['vs30'] = val
             metadata['vs30measured'] = False
