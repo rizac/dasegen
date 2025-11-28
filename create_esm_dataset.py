@@ -607,7 +607,7 @@ def main():  # noqa
     print(f'Creating harmonized dataset from source')
     pbar = tqdm(
         total=len(files),
-        bar_format="{percentage:3.0f}%|{bar}| {postfix} | ~{remaining}s remaining"
+        bar_format="{percentage:3.0f}%|{bar} {postfix} | ~{remaining}s remaining"
     )
     records = []
     item_num = 0
@@ -705,7 +705,7 @@ def main():  # noqa
         finally:
             saved_ratio = int(100 * saved_waveforms / (total_waveforms/3))
             pbar.set_postfix({
-                "": f"{saved_waveforms:,} saved waveforms (~{saved_ratio}%)"
+                "saved waveforms": f"{saved_waveforms:,} (~{saved_ratio}%)"
             })
             pbar.update(num_files)
 
