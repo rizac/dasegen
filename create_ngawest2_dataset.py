@@ -395,7 +395,10 @@ def main():  # noqa
 
     print(f'Scanning source waveforms directory...', end=" ", flush=True)
     files = scan_dir(source_waveforms_path)
-    print(f'{len(files):,} file(s) found')
+    assert len(files), 'No files found'
+    msg = f'{len(files):,} file(s) found'
+    print(msg)
+    logging.info(msg)
 
     print(f'Reading source metadata file...', end=" ", flush=True)
     csv_args: dict[str, Any] = dict(source_metadata_csv_args)
@@ -418,10 +421,11 @@ def main():  # noqa
     if len(metadata) < old_len:
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')
-    print(f'{len(metadata):,} record(s), {len(metadata.columns):,} field(s) per record, '
-          f'{old_len - len(metadata)} row(s) removed in pre-process')
-
-    assert len(files), 'No files found'
+    msg = (f'{len(metadata):,} record(s), ' 
+           f'{len(metadata.columns):,} field(s) per record, '
+           f'{old_len - len(metadata)} row(s) removed in pre-process')
+    print(msg)
+    logging.info(msg)
 
     print(f'Creating harmonized dataset from source')
     pbar = tqdm(
