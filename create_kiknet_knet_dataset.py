@@ -63,6 +63,7 @@ pga_retol = 1/4
 
 # csv arguments for source metadata (e/g. 'header'= None)
 source_metadata_csv_args = {
+    'skiprows': 3,
     # 'header': None  # for CSVs with no header
     # 'dtype': {}  # NOT RECOMMENDED, see `metadata_fields.yml` instead
     # 'usecols': []  # NOT RECOMMENDED, see `source_metadata_fields` below instead
@@ -104,13 +105,13 @@ source_metadata_fields = {
     "fnet_Dip_1": 'dip2',
     "fnet_Rake_1": 'rake2',
     "Focal_mechanism_BA": 'fault_type',
-    "vs30": "vs30",
-    "vs30measured": "vs30measured",
+    # "vs30": "vs30",
+    # "vs30measured": "vs30measured",
     'StationLat.': "station_latitude",
     'StationLong.': "station_longitude",
     'StationHeight(m)': "station_height",
-    "z1": "z1",
-    "z2pt5": "z2pt5",
+    # "z1": "z1",
+    # "z2pt5": "z2pt5",
 
     "fc0": "lower_cutoff_frequency_h1",  # FIXME CHECK THIS  hp_h1
     # "fc0": "lower_cutoff_frequency_h2",
@@ -132,20 +133,49 @@ def accept_file(file_path) -> bool:
     }  # with *1 => borehole
 
 
-def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
+def pre_process(metadata: pd.DataFrame, metadata_path: str) -> pd.DataFrame:
     """Pre-process the metadata Dataframe. This is usually the place where the given
     dataframe is setup in order to easily find records from file names, or optimize
     some column data (e.g. convert strings to categorical).
 
     :param metadata: the metadata DataFrame. The DataFrame columns come from the global
         `source_metadata_fields` dict, using each value if not None, otherwise its key.
+    :param metadata_path: the file path of the metadata DataFrame
 
     :return: a pandas DataFrame optionally modified from `metadata`
     """
-    sta_df = pd.read_csv()
     metadata = metadata.dropna(subset=['event_id', 'station_id'])
     metadata['event_id'] = metadata['event_id'].astype('category')
     metadata['station_id'] = metadata['station_id'].astype('category')
+
+    # add station metadata from separate CSV:
+    sta_df = pd.read_csv(join(dirname(metadata_path), "Site Database of K-NET and "
+                                                      "KiK-net Strong-Motion "
+                                                      "Stations_v1.0.0_20201201_vs30."
+                                                      "csv"), skiprows=2)
+    # remove 1st row
+    sta_df = sta_df.iloc[1:, :]
+    # we assume that first vs30 is measured, second is inferred (looking at the csv):
+    sta_df['vs30measured'] = sta_df['Vs30 measured'].astype(bool)
+    assert sta_df['vs30measured'].any() and (~sta_df['vs30measured']).any()
+    assert sta_df.columns[1] == 'VS30' and sta_df.columns[2] == 'VS30  '
+    sta_df['vs30'] = sta_df['VS30']
+    sta_df.loc[~sta_df['vs30measured'], 'vs30'] = \
+        sta_df.loc[~sta_df['vs30measured'], 'VS30  ']
+
+    metadata['vs30'] = np.nan
+    metadata['vs30measured'] = False
+    metadata['z1'] = np.nan
+    metadata['z2pt5'] = np.nan
+
+    for i, _ in sta_df.iterrows():
+        flt = metadata['station_id'] == _['Site Code']
+        if flt.any():  # noqa
+            metadata.loc[flt, 'vs30'] = _['vs30']
+            metadata.loc[flt, 'vs30measured'] = _['vs30measured']
+            metadata.loc[flt, 'z1'] = _['ZP1.0']
+            metadata.loc[flt, 'z2pt5'] = _['ZP2.5']
+
     metadata = metadata.set_index(["event_id", "station_id"], drop=True)
     return metadata
 
@@ -388,7 +418,7 @@ def main():  # noqa
     old_len = len(metadata)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
-        metadata = pre_process(metadata).copy()
+        metadata = pre_process(metadata, source_metadata_path).copy()
     if len(metadata) < old_len:
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')

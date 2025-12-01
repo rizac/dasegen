@@ -38,11 +38,11 @@ def setup_teardown():
     tearDown()
 
 
-def run_(dataset: str, metadata_file_name=None):
+def run_(dataset: str, metadata_file_name: str):
     # dataset is ngawest, esm, kinet_knet
     src_data_dir = join(source_data_dir, dataset)
     assert isdir(src_data_dir)
-    src_metadata_path = join(src_data_dir, metadata_file_name or (dataset + ".csv"))
+    src_metadata_path = join(src_data_dir, metadata_file_name)
     assert isfile(src_metadata_path)
     my_dest_data_dir = join(dest_data_dir, dataset)
     os.mkdir(my_dest_data_dir)
@@ -105,11 +105,11 @@ def test_nga_west2():
 
 
 def test_knet():
-    run_('kiknet_knet')
+    run_('kiknet_knet', "2025-001_Loviknes-et-al_1996_2024_knet_Oct24META.csv")
 
 
 def test_esm():
-    run_('esm')
+    run_('esm', 'ESM_flatfile_SA.csv')
 
 
 def tst_source_metadata_stats():

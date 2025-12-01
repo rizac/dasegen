@@ -133,13 +133,14 @@ def accept_file(file_path) -> bool:
     return splitext(file_path)[1].startswith('.ASC')
 
 
-def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
+def pre_process(metadata: pd.DataFrame, metadata_path: str) -> pd.DataFrame:
     """Pre-process the metadata Dataframe. This is usually the place where the given
     dataframe is setup in order to easily find records from file names, or optimize
     some column data (e.g. convert strings to categorical).
 
     :param metadata: the metadata DataFrame. The DataFrame columns come from the global
         `source_metadata_fields` dict, using each value if not None, otherwise its key.
+    :param metadata_path: the file path of the metadata DataFrame
 
     :return: a pandas DataFrame optionally modified from `metadata`
     """
@@ -614,7 +615,7 @@ def main():  # noqa
     old_len = len(metadata)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
-        metadata = pre_process(metadata).copy()
+        metadata = pre_process(metadata, source_metadata_path).copy()
     if len(metadata) < old_len:
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')
