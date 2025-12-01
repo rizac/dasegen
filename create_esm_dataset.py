@@ -619,7 +619,9 @@ def main():  # noqa
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')
     print(f'{len(metadata):,} record(s), {len(metadata.columns):,} field(s) per record, '
-          f'{old_len - len(metadata)} row(s) removed')
+          f'{old_len - len(metadata)} row(s) removed in pre-process')
+
+    assert len(files), 'No files found'
 
     print(f'Creating harmonized dataset from source')
     pbar = tqdm(
@@ -640,11 +642,9 @@ def main():  # noqa
 
             # checks:
             if sum(_ is not None for _ in (h1_path, h2_path, v_path)) == 0:
-                raise Exception('No existing file found')
+                continue
             if not isinstance(record, pd.Series):
-                if isinstance(record, pd.DataFrame):
-                    raise Exception('Multiple metadata record found')
-                raise Exception('No metadata record found')
+                raise Exception('No metadata record found (no pd.Series)')
             record = record.copy()
             for _ in (h1_path, h2_path, v_path):
                 if _ in files:

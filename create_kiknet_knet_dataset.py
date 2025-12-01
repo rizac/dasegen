@@ -64,8 +64,8 @@ pga_retol = 1/4
 # csv arguments for source metadata (e/g. 'header'= None)
 source_metadata_csv_args = {
     # 'header': None  # for CSVs with no header
-    # 'dtype': {}  # NOT RECOMMENDED: this might interfere with the default field dtypes
-    # 'usecols': []  # NOT RECOMMENDED: this might interfere with the default field names
+    # 'dtype': {}  # NOT RECOMMENDED, see `metadata_fields.yml` instead
+    # 'usecols': []  # NOT RECOMMENDED, see `source_metadata_fields` below instead
 }
 
 # Mapping from source metadata columns to their new names. Map to None to skip renaming
@@ -142,6 +142,7 @@ def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
 
     :return: a pandas DataFrame optionally modified from `metadata`
     """
+    sta_df = pd.read_csv()
     metadata = metadata.dropna(subset=['event_id', 'station_id'])
     metadata['event_id'] = metadata['event_id'].astype('category')
     metadata['station_id'] = metadata['station_id'].astype('category')
@@ -392,7 +393,9 @@ def main():  # noqa
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')
     print(f'{len(metadata):,} record(s), {len(metadata.columns):,} field(s) per record, '
-          f'{old_len - len(metadata)} row(s) removed')
+          f'{old_len - len(metadata)} row(s) removed in pre-process')
+
+    assert len(files), 'No files found'
 
     print(f'Creating harmonized dataset from source')
     pbar = tqdm(
@@ -413,11 +416,9 @@ def main():  # noqa
 
             # checks:
             if sum(_ is not None for _ in (h1_path, h2_path, v_path)) == 0:
-                raise Exception('No existing file found')
+                continue
             if not isinstance(record, pd.Series):
-                if isinstance(record, pd.DataFrame):
-                    raise Exception('Multiple metadata record found')
-                raise Exception('No metadata record found')
+                raise Exception('No metadata record found (no pd.Series)')
             record = record.copy()
             for _ in (h1_path, h2_path, v_path):
                 if _ in files:
