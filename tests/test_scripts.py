@@ -38,14 +38,12 @@ def setup_teardown():
     tearDown()
 
 
-def run_(dataset: str):  # ngawest, esm, kinet_knet
-
-
+def run_(dataset: str, metadata_file_name=None):
+    # dataset is ngawest, esm, kinet_knet
     src_data_dir = join(source_data_dir, dataset)
-    metadata = [f for f in os.listdir(src_data_dir) if splitext(f)[1] == '.csv']
-    assert len(metadata) == 1, f'CSV in {src_data_dir} must be 1'
-    src_metadata_path = join(src_data_dir, metadata[0])
-
+    assert isdir(src_data_dir)
+    src_metadata_path = join(src_data_dir, metadata_file_name or (dataset + ".csv"))
+    assert isfile(src_metadata_path)
     my_dest_data_dir = join(dest_data_dir, dataset)
     os.mkdir(my_dest_data_dir)
     config_path = join(my_dest_data_dir, "config.yml")
@@ -103,7 +101,7 @@ destination: "{my_dest_data_dir}"
 
 
 def test_nga_west2():
-    run_('ngawest2')
+    run_('ngawest2', 'Updated_NGA_West2_Flatfile_RotD50_d005_public_version.csv')
 
 
 def test_knet():

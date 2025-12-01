@@ -72,10 +72,12 @@ source_metadata_csv_args = {
 # and just load the column data
 source_metadata_fields = {
     'EQID': "event_id",
-    "station_id": "station_id",
-    "fpath_h1": None,
-    "fpath_h2": None,
-    "fpath_v": None,
+    'Station ID  No.': None,
+    "Station Sequence Number": None,
+
+    # "fpath_h1": None,
+    # "fpath_h2": None,
+    # "fpath_v": None,
     'Record Sequence Number': None,
 
     "EpiD (km)": "epicentral_distance",
@@ -126,7 +128,14 @@ def accept_file(file_path) -> bool:
     :param file_path: the scanned file absolute path (it can also be a file within a zip
         file, in that case the parent directory name is the zip file name)
     """
-    return splitext(file_path)[1].startswith('.AT')
+    b_name = basename(file_path)
+    if b_name.startswith('RSN'):
+        b_name, ext = splitext(b_name)
+        if ext.startswith('.AT'):
+            if b_name.endswith('UD') or b_name.endswith('DWN'):
+                if b_name.find('_') > 3:
+                    return True
+    return False
 
 
 def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
@@ -139,17 +148,18 @@ def pre_process(metadata: pd.DataFrame) -> pd.DataFrame:
 
     :return: a pandas DataFrame optionally modified from `metadata`
     """
-    cols = ["fpath_h1", "fpath_h2", "fpath_v"]
-    metadata = metadata.dropna(subset=cols + ['event_id', 'station_id'])
     # set event and station categorical (save space)
+    no_sta_id = metadata['Station ID  No.'].str.startswith("-999")
+    metadata['station_id'] = metadata['Station ID  No.']
+    metadata.loc[no_sta_id, 'station_id'] = \
+        "SSN_" + metadata.loc[no_sta_id, 'Station Sequence Number'].astype(str)
+    metadata.drop(columns=['Station ID  No.', 'Station Sequence Number'], inplace=True)
+    metadata.dropna(subset=['event_id', 'station_id'], inplace=True)
     metadata['event_id'] = metadata['event_id'].astype('category')
     metadata['station_id'] = metadata['station_id'].astype('category')
-    # set fpath as index (+ some prefix addition):
-    for col in cols:
-        metadata[col] = metadata[col].str.strip()
-        assert not metadata[col].str.startswith('RSN_').any()
-        metadata[col] = metadata[col].str.removeprefix('RSN')
-    metadata = metadata.set_index(cols, drop=True)
+    metadata['Record Sequence Number'] = metadata['Record Sequence Number'].astype(int)
+    assert not metadata['Record Sequence Number'].duplicated().any()
+    metadata.set_index(['Record Sequence Number'], drop=True, inplace=True)
     return metadata
 
 
@@ -168,36 +178,43 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
         pandas Series denoting the waveforms metadata (common to the three components)
     """
     file_basename = basename(file_path)
-    rsn = None
-    rsn_prefix = ''
-    if file_basename.startswith('RSN'):
-        rsn_prefix = 'RSN'
-        file_basename = file_basename.removeprefix('RSN')
-        if '_' in file_basename:
-            rsn = file_basename.split('_')[0]
-
+    b_name, ext = splitext(file_basename)
     root_dir = dirname(file_path)
-
-    for attempt in [
-        ([file_basename], slice(None), slice(None)),
-        (slice(None), [file_basename], slice(None)),
-        (slice(None), slice(None), [file_basename])
-    ]:
+    rsn = None
+    try:
+        rsn = int(file_basename[3:].split('_')[0])
+    except (ValueError, TypeError):
+        pass
+    if rsn is not None:
         try:
-            meta = metadata.loc[attempt]  # connot return a Series (slices in loc)
+            meta = metadata.loc[rsn]  # connot return a Series (slices in loc)
+            if isinstance(meta, pd.Series):
+
+                if b_name.endswith('DWN'):
+                    ptrn = re.compile(re.escape(b_name[:-3]) + r"\d+" + re.escape(ext))
+                    # search in the ame directory:
+                    filez = []
+                    for fle in os.listdir(dirname(file_path)):
+                        if fle != file_basename:
+                            if ptrn.match(fle):
+                                filez.append(join(root_dir, fle))
+                    if len(filez) == 0:
+                        filez = [None, None]
+                    elif len(filez) == 1:
+                        filez.append(None)
+                    elif len(filez) != 2:
+                        raise KeyError()  # see below
+                    filez.append(file_path)
+                else:  # UD
+                    filez = (
+                        join(root_dir, b_name[:-2] + 'NS' + ext),
+                        join(root_dir, b_name[:-2] + 'EW' + ext),
+                        file_path
+                    )
+                return tuple(filez) + (meta,)  # convert to Series
+
         except KeyError:
-            continue
-        if len(meta) == 1:
-            if rsn is not None:
-                if str(meta['Record Sequence Number'].iloc[0]).strip() != rsn:
-                    raise ValueError("File name match, RSN doesn't")
-            file_names = [rsn_prefix + _ for _ in meta.index[0]]
-            return (
-                join(root_dir, file_names[0]),
-                join(root_dir, file_names[1]),
-                join(root_dir, file_names[2]),
-                meta.iloc[0]  # convert to Series
-            )
+            pass
 
     return None, None, None, None
 
@@ -401,7 +418,9 @@ def main():  # noqa
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')
     print(f'{len(metadata):,} record(s), {len(metadata.columns):,} field(s) per record, '
-          f'{old_len - len(metadata)} row(s) removed')
+          f'{old_len - len(metadata)} row(s) removed in pre-process')
+
+    assert len(files), 'No files found'
 
     print(f'Creating harmonized dataset from source')
     pbar = tqdm(
@@ -422,11 +441,9 @@ def main():  # noqa
 
             # checks:
             if sum(_ is not None for _ in (h1_path, h2_path, v_path)) == 0:
-                raise Exception('No existing file found')
+                continue
             if not isinstance(record, pd.Series):
-                if isinstance(record, pd.DataFrame):
-                    raise Exception('Multiple metadata record found')
-                raise Exception('No metadata record found')
+                raise Exception('No metadata record found (no pd.Series)')
             record = record.copy()
             for _ in (h1_path, h2_path, v_path):
                 if _ in files:
@@ -766,62 +783,49 @@ def cast_dtypes(
             return values
 
     if dtype == 'int':
-        if values is None:
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype=int),
-                index=dataframe.index
-            )
-        return values.astype(int)
+        if values is not None:
+            return values.astype(dtype)
+        dtype = int
     elif dtype == 'bool':
-        if values is None:
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype=bool),
-                index=dataframe.index
-            )
-        return values.astype(bool)
+        if values is not None:
+            return values.astype(dtype)
+        dtype = bool
     elif dtype == 'datetime':
-        if values is None:
-            if pd.isna(default_value):
-                default_value = pd.NaT
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype='datetime64[ns]'),
-                index=dataframe.index
-            )
-        return pd.to_datetime(values, errors='coerce')
+        if values is not None:
+            return pd.to_datetime(values, errors='coerce')
+        if pd.isna(default_value):
+            default_value = pd.NaT
+        dtype = 'datetime64[ns]'
     elif dtype == 'str':
-        if values is None:
-            if pd.isna(default_value):
-                default_value = None
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype=str),
-                index=dataframe.index
-            )
-        return values.astype(str)
+        if values is not None:
+            return values.astype(str)
+        if pd.isna(default_value):
+            default_value = None
+        dtype = str
     elif dtype == 'float':
-        if values is None:
-            if pd.isna(default_value):
-                default_value = np.nan
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype=float),
-                index=dataframe.index
-            )
-        return values.astype(float)
+        if values is not None:
+            return values.astype(float)
+        if pd.isna(default_value):
+            default_value = np.nan
+        dtype = float
     elif isinstance(dtype, pd.CategoricalDtype):
-        if values is None:
-            if pd.isna(default_value):
-                default_value = None
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype=object),
-                dtype=dtype, index=dataframe.index
-            )
-        cat_values = set(dtype.categories)  # allowed categories
-        invalid = set(values.dropna()) - cat_values  # invalid, non-NA values
-        if invalid:
-            raise AssertionError(
-                f'Unrecognized categories in {dataframe_column}: {invalid}'
-            )
-        return values.astype(dtype)
-    raise AssertionError(f'Unrecognized dtype {dtype}')
+        if values is not None:
+            cat_values = set(dtype.categories)  # allowed categories
+            invalid = set(values.dropna()) - cat_values  # invalid, non-NA values
+            if invalid:
+                raise AssertionError(
+                    f'Unrecognized categories in {dataframe_column}: {invalid}'
+                )
+            return values.astype(dtype)
+        if pd.isna(default_value):
+            default_value = None
+    else:
+        raise AssertionError(f'Unrecognized dtype {dtype}')
+
+    # column not found, fill with defaults:
+    return pd.Series(
+        np.full(len(dataframe), default_value), index=dataframe.index, dtype=dtype
+    )
 
 
 def save_waveforms(

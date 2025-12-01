@@ -757,62 +757,49 @@ def cast_dtypes(
             return values
 
     if dtype == 'int':
-        if values is None:
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype=int),
-                index=dataframe.index
-            )
-        return values.astype(int)
+        if values is not None:
+            return values.astype(dtype)
+        dtype = int
     elif dtype == 'bool':
-        if values is None:
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype=bool),
-                index=dataframe.index
-            )
-        return values.astype(bool)
+        if values is not None:
+            return values.astype(dtype)
+        dtype = bool
     elif dtype == 'datetime':
-        if values is None:
-            if pd.isna(default_value):
-                default_value = pd.NaT
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype='datetime64[ns]'),
-                index=dataframe.index
-            )
-        return pd.to_datetime(values, errors='coerce')
+        if values is not None:
+            return pd.to_datetime(values, errors='coerce')
+        if pd.isna(default_value):
+            default_value = pd.NaT
+        dtype = 'datetime64[ns]'
     elif dtype == 'str':
-        if values is None:
-            if pd.isna(default_value):
-                default_value = None
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype=str),
-                index=dataframe.index
-            )
-        return values.astype(str)
+        if values is not None:
+            return values.astype(str)
+        if pd.isna(default_value):
+            default_value = None
+        dtype = str
     elif dtype == 'float':
-        if values is None:
-            if pd.isna(default_value):
-                default_value = np.nan
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype=float),
-                index=dataframe.index
-            )
-        return values.astype(float)
+        if values is not None:
+            return values.astype(float)
+        if pd.isna(default_value):
+            default_value = np.nan
+        dtype = float
     elif isinstance(dtype, pd.CategoricalDtype):
-        if values is None:
-            if pd.isna(default_value):
-                default_value = None
-            return pd.Series(
-                np.full(len(dataframe), default_value, dtype=object),
-                dtype=dtype, index=dataframe.index
-            )
-        cat_values = set(dtype.categories)  # allowed categories
-        invalid = set(values.dropna()) - cat_values  # invalid, non-NA values
-        if invalid:
-            raise AssertionError(
-                f'Unrecognized categories in {dataframe_column}: {invalid}'
-            )
-        return values.astype(dtype)
-    raise AssertionError(f'Unrecognized dtype {dtype}')
+        if values is not None:
+            cat_values = set(dtype.categories)  # allowed categories
+            invalid = set(values.dropna()) - cat_values  # invalid, non-NA values
+            if invalid:
+                raise AssertionError(
+                    f'Unrecognized categories in {dataframe_column}: {invalid}'
+                )
+            return values.astype(dtype)
+        if pd.isna(default_value):
+            default_value = None
+    else:
+        raise AssertionError(f'Unrecognized dtype {dtype}')
+
+    # column not found, fill with defaults:
+    return pd.Series(
+        np.full(len(dataframe), default_value), index=dataframe.index, dtype=dtype
+    )
 
 
 def save_waveforms(
