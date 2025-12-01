@@ -33,6 +33,14 @@ from tqdm import tqdm
 from dataclasses import dataclass
 
 
+class MetadataWriteError(Exception):
+    """
+    Exception in writing metadata that should be treated specifically (e.g.
+    interrupt the code and skip logging)
+    """
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class Waveform:
     """Simple class handling a Waveform (Time History single component)"""
@@ -488,7 +496,8 @@ def main():  # noqa
                     metadata_fields
                 )
                 records = []
-
+        except MetadataWriteError:
+            raise
         except Exception as exc:
             fname, lineno = exc_func_and_lineno(exc, __file__)
             logging.error(f"{exc}. File: {file}. Function {fname}, line {lineno}")
@@ -710,32 +719,34 @@ def extract_metadata_from_waveforms(
 
 
 def save_metadata(dest_metadata_path: str, metadata: pd.DataFrame, metadata_fields):
-    if metadata is not None and not metadata.empty:
-        # save metadata:
-        new_metadata_df = pd.DataFrame(metadata)
-        new_metadata_df = new_metadata_df[
-            [c for c in new_metadata_df if c in metadata_fields]
-        ].copy()
-        for col in metadata_fields:
-            new_metadata_df[col] = cast_dtypes(
-                metadata_fields[col]['dtype'],
-                metadata_fields[col].get('default'),
-                new_metadata_df.get(col),
-                new_metadata_df
+    try:
+        if metadata is not None and not metadata.empty:
+            # save metadata:
+            new_metadata_df = pd.DataFrame(metadata)
+            for col in metadata_fields:
+                new_metadata_df[col] = cast_dtypes(
+                    metadata_fields[col]['dtype'],
+                    metadata_fields[col].get('default'),
+                    col,
+                    new_metadata_df
+                )
+            hdf_kwargs = {
+                'key': "metadata",  # table name
+                'mode': "a",
+                # (1st time creates a new file because we deleted it, see above)
+                'format': "table",  # required for appendable table
+                'append': True,  # first batch still uses append=True
+                # 'min_itemsize': {
+                #     'event_id': metadata["event_id"].str.len,
+                #     'station_id': metadata["station_id"].str.len,
+                # },  # required for strings (used only the 1st time to_hdf is called)  # noqa
+                # 'data_columns': [],  # list of columns you need to query these later
+            }
+            new_metadata_df[list(metadata_fields)].to_hdf(
+                dest_metadata_path, **hdf_kwargs
             )
-        hdf_kwargs = {
-            'key': "metadata",  # table name
-            'mode': "a",
-            # (1st time creates a new file because we deleted it, see above)
-            'format': "table",  # required for appendable table
-            'append': True,  # first batch still uses append=True
-            # 'min_itemsize': {
-            #     'event_id': metadata["event_id"].str.len,
-            #     'station_id': metadata["station_id"].str.len,
-            # },  # required for strings (used only the 1st time to_hdf is called)  # noqa
-            # 'data_columns': [],  # list of columns you need to query these later
-        }
-        new_metadata_df.to_hdf(dest_metadata_path, **hdf_kwargs)
+    except Exception as exc:
+        raise MetadataWriteError(str(exc))
 
 
 def cast_dtypes(
@@ -749,45 +760,66 @@ def cast_dtypes(
     the outcome of `cast_dtype` so it should be of the correct dtype already)
     """
     values = dataframe.get(dataframe_column)
+    if isinstance(dtype, str) and values is not None:
+        real_dt = str(getattr(values, 'dtype', ''))
+        if real_dt.startswith(dtype):
+            return values
+
     if dtype == 'int':
         if values is None:
-            values = [default_value] * len(dataframe)
-        # assert pd.notna(values).all()
+            return pd.Series(
+                np.full(len(dataframe), default_value, dtype=int),
+                index=dataframe.index
+            )
         return values.astype(int)
     elif dtype == 'bool':
         if values is None:
-            values = [default_value] * len(dataframe)
+            return pd.Series(
+                np.full(len(dataframe), default_value, dtype=bool),
+                index=dataframe.index
+            )
         return values.astype(bool)
     elif dtype == 'datetime':
         if values is None:
             if pd.isna(default_value):
                 default_value = pd.NaT
-            values = [default_value] * len(dataframe)
+            return pd.Series(
+                np.full(len(dataframe), default_value),
+                index=dataframe.index
+            )
         return pd.to_datetime(values, errors='coerce')
     elif dtype == 'str':
         if values is None:
             if pd.isna(default_value):
                 default_value = None
-            values = [default_value] * len(dataframe)
+            return pd.Series(
+                np.full(len(dataframe), default_value, dtype=dtype),
+                index=dataframe.index
+            )
         return values.astype(str)
     elif dtype == 'float':
         if values is None:
             if pd.isna(default_value):
                 default_value = np.nan
-            values = [default_value] * len(dataframe)
+            return pd.Series(
+                np.full(len(dataframe), default_value, dtype=float),
+                index=dataframe.index
+            )
         return values.astype(float)
     elif isinstance(dtype, pd.CategoricalDtype):
         if values is None:
             if pd.isna(default_value):
                 default_value = None
-            values = [default_value] * len(dataframe)
-        else:
-            cat_values = set(dtype.categories)  # allowed categories
-            invalid = set(values.dropna()) - cat_values  # invalid, non-NA values
-            if invalid:
-                raise AssertionError(
-                    f'Unrecognized categories in {dataframe_column}: {invalid}'
-                )
+            return pd.Series(
+                np.full(len(dataframe), default_value, dtype=float),
+                dtype=dtype, index=dataframe.index
+            )
+        cat_values = set(dtype.categories)  # allowed categories
+        invalid = set(values.dropna()) - cat_values  # invalid, non-NA values
+        if invalid:
+            raise AssertionError(
+                f'Unrecognized categories in {dataframe_column}: {invalid}'
+            )
         return values.astype(dtype)
     raise AssertionError(f'Unrecognized dtype {dtype}')
 
