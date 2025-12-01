@@ -1002,7 +1002,7 @@ def cast_dtypes(
             if pd.isna(default_value):
                 default_value = pd.NaT
             return pd.Series(
-                np.full(len(dataframe), default_value),
+                np.full(len(dataframe), default_value, dtype='datetime64[ns]'),
                 index=dataframe.index
             )
         return pd.to_datetime(values, errors='coerce')
@@ -1011,7 +1011,7 @@ def cast_dtypes(
             if pd.isna(default_value):
                 default_value = None
             return pd.Series(
-                np.full(len(dataframe), default_value, dtype=dtype),
+                np.full(len(dataframe), default_value, dtype=str),
                 index=dataframe.index
             )
         return values.astype(str)
@@ -1029,7 +1029,7 @@ def cast_dtypes(
             if pd.isna(default_value):
                 default_value = None
             return pd.Series(
-                np.full(len(dataframe), default_value, dtype=float),
+                np.full(len(dataframe), default_value, dtype=object),
                 dtype=dtype, index=dataframe.index
             )
         cat_values = set(dtype.categories)  # allowed categories
