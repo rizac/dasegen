@@ -157,11 +157,14 @@ def pre_process(metadata: pd.DataFrame, metadata_path: str) -> pd.DataFrame:
     sta_df = sta_df.iloc[1:, :]
     # we assume that first vs30 is measured, second is inferred (looking at the csv):
     sta_df['vs30measured'] = sta_df['Vs30 measured'].astype(bool)
+    sta_df['ZP1.0'] = sta_df['ZP1.0'].astype(float)
+    sta_df['ZP2.5'] = sta_df['ZP2.5'].astype(float)
     assert sta_df['vs30measured'].any() and (~sta_df['vs30measured']).any()
     assert sta_df.columns[1] == 'VS30' and sta_df.columns[2] == 'VS30  '
     sta_df['vs30'] = sta_df['VS30']
     sta_df.loc[~sta_df['vs30measured'], 'vs30'] = \
         sta_df.loc[~sta_df['vs30measured'], 'VS30  ']
+    sta_df['vs30'] = sta_df['VS30'].astype(float)
 
     metadata['vs30'] = np.nan
     metadata['vs30measured'] = False
