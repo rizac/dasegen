@@ -142,14 +142,18 @@ def pre_process(metadata: pd.DataFrame, metadata_path: str, files: set[str]) \
     # set the categories for station_id:
     station_ids = {".".join(basename(f).split('.')[:4])[:-1] for f in files}
     assert set(metadata['station_id']) & station_ids
+    # sorted categories and ordered=True makes using the col in a multi-index faster
+    # and avoids warnings:
     metadata['station_id'] = metadata['station_id'].astype(
-        pd.CategoricalDtype(categories=list(station_ids), ordered=False)
+        pd.CategoricalDtype(categories=sorted(station_ids), ordered=True)
     )
 
     event_ids = {basename(dirname(f)).removesuffix(".zip") for f in files}
     assert set(metadata['event_id']) & event_ids
+    # sorted categories and ordered=True makes using the col in a multi-index faster
+    # and avoids warnings:
     metadata['event_id'] = metadata['event_id'].astype(str).astype(
-        pd.CategoricalDtype(categories=list(event_ids), ordered=False)
+        pd.CategoricalDtype(categories=sorted(event_ids), ordered=True)
     )
 
     metadata['magnitude_type'] = 'Mw'
