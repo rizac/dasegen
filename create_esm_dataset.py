@@ -443,10 +443,19 @@ def post_process(
             metadata['magnitude_type'] = 'ML'
 
     if 'fault_type' not in metadata and metadata.get('.FOCAL_MECHANISM'):
-        metadata['fault_type'] = metadata['.FOCAL_MECHANISM'].removesuffix(' faulting')
+        foc_mec = metadata['.FOCAL_MECHANISM'].strip().\
+            removesuffix(' faulting').strip().lower()
+        if foc_mec != 'unknown':
+            if foc_mec == 'thrust':
+                foc_mec = 'reverse'
+            # check lower case and other stuff:
+            for def_foc_mec in ['Strike-Slip', 'Normal', 'Reverse', 'Reverse-Oblique', 'Normal-Oblique']:
+                if foc_mec == def_foc_mec.lower():
+                    metadata['fault_type'] = def_foc_mec
 
     if is_na(metadata.get('start_time')) and \
-            not_na(metadata.get('.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS')):
+            not_na(metadata.get('.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS')) and \
+            len(metadata.get('.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS').strip()):
         for fmt in ("%Y%m%d_%H%M%S.%f", "%Y%m%d_%H%M%S"):
             try:
                 metadata['start_time'] = datetime.strptime(
@@ -877,9 +886,9 @@ def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
             if hasattr(val, 'to_pydatetime'):  # for safety
                 val = val.to_pydatetime()
             assert isinstance(val, datetime)
-        elif val == 'str':
+        elif dtype == 'str':
             assert isinstance(val, str)
-        elif val == 'float':
+        elif dtype == 'float':
             assert isinstance(val, float)
         elif isinstance(dtype, pd.CategoricalDtype):
             assert val in dtype.categories

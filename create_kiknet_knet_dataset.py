@@ -683,9 +683,9 @@ def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
             if hasattr(val, 'to_pydatetime'):  # for safety
                 val = val.to_pydatetime()
             assert isinstance(val, datetime)
-        elif val == 'str':
+        elif dtype == 'str':
             assert isinstance(val, str)
-        elif val == 'float':
+        elif dtype == 'float':
             assert isinstance(val, float)
         elif isinstance(dtype, pd.CategoricalDtype):
             assert val in dtype.categories
