@@ -143,13 +143,13 @@ def pre_process(metadata: pd.DataFrame, metadata_path: str, files: set[str]) \
     station_ids = {".".join(basename(f).split('.')[:4])[:-1] for f in files}
     assert set(metadata['station_id']) & station_ids
     metadata['station_id'] = metadata['station_id'].astype(
-        pd.CategoricalDtype(categories=list(station_ids), ordered=False)
+        pd.CategoricalDtype(categories=sorted(station_ids), ordered=True)
     )
 
     event_ids = {basename(dirname(f)).removesuffix(".zip") for f in files}
     assert set(metadata['event_id']) & event_ids
     metadata['event_id'] = metadata['event_id'].astype(str).astype(
-        pd.CategoricalDtype(categories=list(event_ids), ordered=False)
+        pd.CategoricalDtype(categories=sorted(event_ids), ordered=True)
     )
 
     metadata['magnitude_type'] = 'Mw'
@@ -214,9 +214,10 @@ def pre_process(metadata: pd.DataFrame, metadata_path: str, files: set[str]) \
 
     metadata['PGA'] = metadata['PGA'] / 100  # from cm/sec2 to m/sec2
 
+    # Sort the DataFrame by codes explicitly
+    metadata = metadata.sort_values(['station_id', 'event_id'])
     metadata = metadata.set_index(['event_id', 'station_id'], drop=False)
-    # Sorting index makes .loc faster and avoids warnings:
-    metadata = metadata.sort_index()
+
     return metadata
 
 
