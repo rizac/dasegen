@@ -124,7 +124,8 @@ def accept_file(file_path) -> bool:
     return False
 
 
-def pre_process(metadata: pd.DataFrame, metadata_path: str) -> pd.DataFrame:
+def pre_process(metadata: pd.DataFrame, metadata_path: str, files: set[str]) \
+        -> pd.DataFrame:
     """Pre-process the metadata Dataframe. This is usually the place where the given
     dataframe is setup in order to easily find records from file names, or optimize
     some column data (e.g. convert strings to categorical).
@@ -132,6 +133,7 @@ def pre_process(metadata: pd.DataFrame, metadata_path: str) -> pd.DataFrame:
     :param metadata: the metadata DataFrame. The DataFrame columns come from the global
         `source_metadata_fields` dict, using each value if not None, otherwise its key.
     :param metadata_path: the file path of the metadata DataFrame
+    :param files: a set of file paths as returned from `scan_dir`
 
     :return: a pandas DataFrame optionally modified from `metadata`
     """
@@ -420,7 +422,7 @@ def main():  # noqa
     old_len = len(metadata)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
-        metadata = pre_process(metadata, source_metadata_path).copy()
+        metadata = pre_process(metadata, source_metadata_path, files).copy()
 
     for col in ['event_id', 'station_id']:
         assert isinstance(metadata[col].dtype, pd.CategoricalDtype)

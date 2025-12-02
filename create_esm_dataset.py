@@ -119,7 +119,8 @@ def accept_file(file_path) -> bool:
     return splitext(file_path)[1].startswith('.ASC')
 
 
-def pre_process(metadata: pd.DataFrame, metadata_path: str) -> pd.DataFrame:
+def pre_process(metadata: pd.DataFrame, metadata_path: str, files: set[str]) \
+        -> pd.DataFrame:
     """Pre-process the metadata Dataframe. This is usually the place where the given
     dataframe is setup in order to easily find records from file names, or optimize
     some column data (e.g. convert strings to categorical).
@@ -127,6 +128,7 @@ def pre_process(metadata: pd.DataFrame, metadata_path: str) -> pd.DataFrame:
     :param metadata: the metadata DataFrame. The DataFrame columns come from the global
         `source_metadata_fields` dict, using each value if not None, otherwise its key.
     :param metadata_path: the file path of the metadata DataFrame
+    :param files: a set of file paths as returned from `scan_dir`
 
     :return: a pandas DataFrame optionally modified from `metadata`
     """
@@ -137,8 +139,18 @@ def pre_process(metadata: pd.DataFrame, metadata_path: str) -> pd.DataFrame:
     metadata['station_id'] = metadata[cols].agg('.'.join, axis=1)
     metadata = metadata.drop(columns=cols)
 
-    metadata['event_id'] = metadata['event_id'].astype(str).astype('category')
-    metadata['station_id'] = metadata['station_id'].astype('category')
+    # set the categories for station_id:
+    station_ids = {".".join(basename(f).split('.')[:4])[:-1] for f in files}
+    assert set(metadata['station_id']) & station_ids
+    metadata['station_id'] = metadata['station_id'].astype(
+        pd.CategoricalDtype(categories=list(station_ids), ordered=False)
+    )
+
+    event_ids = {basename(dirname(f)).removesuffix(".zip") for f in files}
+    assert set(metadata['event_id']) & event_ids
+    metadata['event_id'] = metadata['event_id'].astype(str).astype(
+        pd.CategoricalDtype(categories=list(event_ids), ordered=False)
+    )
 
     metadata['magnitude_type'] = 'Mw'
     mag_missing = metadata['magnitude'].isna()
@@ -630,7 +642,7 @@ def main():  # noqa
     old_len = len(metadata)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
-        metadata = pre_process(metadata, source_metadata_path).copy()
+        metadata = pre_process(metadata, source_metadata_path, files).copy()
 
     for col in ['event_id', 'station_id']:
         assert isinstance(metadata[col].dtype, pd.CategoricalDtype)
