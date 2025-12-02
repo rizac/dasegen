@@ -350,10 +350,13 @@ def main():  # noqa
         print(exc, file=sys.stderr)
         sys.exit(1)
 
+    print(f"Source waveforms path: {source_waveforms_path}")
+    print(f"Source metadata path:  {source_metadata_path}")
+
     dest_metadata_path = join(dest_root_path, "metadata.hdf")
     dest_waveforms_path = join(dest_root_path, "waveforms")
     print(f"Destination waveforms path: {dest_waveforms_path}")
-    print(f"Destination metadata path: {dest_metadata_path}")
+    print(f"Destination metadata path:  {dest_metadata_path}")
 
     existing = isfile(dest_metadata_path) or isdir(dest_waveforms_path)
     raise_if_file_exists = False
@@ -366,6 +369,7 @@ def main():  # noqa
         )
         if res not in ('y', 'm'):
             sys.exit(1)
+        print()
         if res == 'y':
             raise_if_file_exists = True  # no accidental writing files with same name
             if isdir(dest_waveforms_path):
@@ -382,8 +386,6 @@ def main():  # noqa
 
     logging.info(f'Working directory: {abspath(os.getcwd())}')
     logging.info(f'Run command      : {" ".join([sys.executable] + sys.argv)}')
-    print(f"Source waveforms path: {source_waveforms_path}")
-    print(f"Source metadata path:  {source_metadata_path}")
 
     # Reading metadata fields dtypes and info:
     try:
@@ -532,10 +534,7 @@ def main():  # noqa
             logging.error(f"{exc}. File: {file}. Function {fname}, line {lineno}")
             errs += 1
         finally:
-            saved_ratio = int(100 * saved_waveforms / (total_waveforms/3))
-            pbar.set_postfix({
-                "saved waveforms": f"{saved_waveforms:,} (~{saved_ratio}%)"
-            })
+            pbar.set_postfix({"saved waveforms": f"{saved_waveforms:,}"})
             pbar.update(num_files)
 
         if pbar.n / pbar.total > (1 - min_waveforms_ok_ratio):
@@ -557,7 +556,7 @@ def main():  # noqa
         )
 
     pbar.close()
-    msg = f'Dataset created: {saved_waveforms} waveform(s) ' \
+    msg = f'Dataset created: {saved_waveforms:,} waveform(s) ' \
           f'(either already or newly created, depending on settings)'
     print(msg)
     logging.info(msg)
