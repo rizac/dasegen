@@ -2,17 +2,17 @@
 # a column in a tabular representation (e.g. CSV, Dataframe)
 # 
 # <field_name>:
-#   dtype:    The field data type. Supported values are int, float, str, bool, datetime,
+#   dtype:    The field data type. Supported values are int, float, bool, datetime, str
 #             or a list of values (all the same dtype) for categorical data, i.e. when
-#             the column can only take on one of the given values
-#   default:  The default for missing values. float, str, datetime or categorical
+#             the column can only take on one of the given values (`str` is allowed only
+#             for event_id and station_id and will be converted to categorical in the code)
+#   default:  The default for missing values. float, datetime or categorical
 #             columns can represent missing values natively (e.g., NaN or None), while
 #             int and bool do not support missing values and require an explicit default
 #             (usually 0 and false)
 #   help:     The field description. "[Mandatory]" in the text means that values for this
-#             fields cannot be missing, "[Code generated]" means that values are inferred
-#             from source data/metadata (this information is useful only for developers
-#             and source/raw data providers and can be ignored by most dataset users)
+#             fields cannot be missing, "[Code generated]" means that values should not
+#             be present in "raw" source metadata because it has been inferred from data
 
 id:
   dtype: int

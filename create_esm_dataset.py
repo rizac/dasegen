@@ -216,7 +216,7 @@ def pre_process(metadata: pd.DataFrame, metadata_path: str) -> pd.DataFrame:
 
     metadata['PGA'] = metadata['PGA'] / 100  # from cm/sec2 to m/sec2
 
-    metadata = metadata.set_index(['event_id', 'station_id'], drop=True)
+    metadata = metadata.set_index(['event_id', 'station_id'], drop=False)
     return metadata
 
 
@@ -630,6 +630,11 @@ def main():  # noqa
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
         metadata = pre_process(metadata, source_metadata_path).copy()
+
+    for col in ['event_id', 'station_id']:
+        assert isinstance(metadata[col].dtype, pd.CategoricalDtype)
+        metadata_fields[col]['dtype'] = metadata[col].dtype
+
     if len(metadata) < old_len:
         logging.warning(f'{old_len - len(metadata)} metadata row(s) '
                         f'removed in pre-processing stage')
@@ -648,7 +653,7 @@ def main():  # noqa
     item_num = 0
     errs = 0
     saved_waveforms = 0
-    total_waveforms = len(files)
+
     while len(files):
         num_files = 1
         file = files.pop()
@@ -686,17 +691,28 @@ def main():  # noqa
             # old_record = dict(record)  # for testing purposes
             new_record, h1, h2, v = post_process(record, h1, h2, v)
 
-            # check record data types:
+            # Assign code generated fields:
             item_num += 1
-            clean_record = {'id': item_num}
-            for f in new_record.keys():
-                if f not in metadata_fields:
-                    continue
+            new_record['id'] = item_num
+            # finalize clean_record:
+            avail_comps, sampling_rate = extract_metadata_from_waveforms(h1, h2, v)
+            new_record['available_components'] = avail_comps
+            new_record['sampling_rate'] = sampling_rate if \
+                pd.notna(sampling_rate) else \
+                int(metadata_fields['sampling_rate']['default'])
+
+            clean_record = {}
+            for f in metadata_fields:
                 default_val = metadata_fields[f].get('default')
-                val = new_record.get(f, default_val)
                 dtype = metadata_fields[f]['dtype']
+                if default_val is None:
+                    if dtype == 'datetime':
+                        default_val = pd.NaT
+                    elif dtype == 'float':
+                        default_val = np.nan
+                val = new_record.get(f)
                 try:
-                    clean_record[f] = cast_dtype(val, dtype)
+                    clean_record[f] = cast_dtype(val, dtype, default_val)
                     if f in mandatory_fields and pd.isna(clean_record[f]):
                         val = 'N/A'
                         raise AssertionError()
@@ -705,13 +721,6 @@ def main():  # noqa
 
             # final checks:
             check_final_metadata(clean_record, h1, h2)
-
-            # finalize clean_record:
-            avail_comps, sampling_rate = extract_metadata_from_waveforms(h1, h2, v)
-            clean_record['available_components'] = avail_comps
-            clean_record['sampling_rate'] = sampling_rate if \
-                pd.notna(sampling_rate) else \
-                int(metadata_fields['sampling_rate']['default'])
 
             # save waveforms
             file_path = join(dest_waveforms_path, get_file_path(clean_record))
@@ -873,7 +882,9 @@ def get_metadata_fields(dest_path):
     return metadata_fields
 
 
-def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
+def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype], default_val: Any):
+    if pd.isna(val) or not str(val).strip():
+        val = default_val
     if dtype == 'int':
         assert isinstance(val, int) or (isinstance(val, float) and int(val) == val)
         val = int(val)
@@ -885,11 +896,14 @@ def cast_dtype(val: Any, dtype: Union[str, pd.CategoricalDtype]):
         if dtype == 'datetime':
             if hasattr(val, 'to_pydatetime'):  # for safety
                 val = val.to_pydatetime()
+            elif isinstance(val, str):
+                val = datetime.fromisoformat(val)
             assert isinstance(val, datetime)
         elif dtype == 'str':
             assert isinstance(val, str)
         elif dtype == 'float':
-            assert isinstance(val, float)
+            if not isinstance(val, float):
+                val = float(val)
         elif isinstance(dtype, pd.CategoricalDtype):
             assert val in dtype.categories
     return val
@@ -955,12 +969,14 @@ def save_metadata(dest_metadata_path: str, metadata: pd.DataFrame, metadata_fiel
             # save metadata:
             new_metadata_df = pd.DataFrame(metadata)
             for col in metadata_fields:
-                new_metadata_df[col] = cast_dtypes(
-                    metadata_fields[col]['dtype'],
-                    metadata_fields[col].get('default'),
-                    col,
-                    new_metadata_df
-                )
+                dtype = metadata_fields[col]['dtype']
+                if dtype == 'str':
+                    raise ValueError('Invalid `str` dtype')
+                elif dtype == 'datetime':
+                    new_metadata_df[col] = pd.to_datetime(new_metadata_df[col])
+                else:
+                    new_metadata_df[col] = new_metadata_df[col].astype(dtype)
+
             hdf_kwargs = {
                 'key': "metadata",  # table name
                 'mode': "a",
@@ -978,68 +994,6 @@ def save_metadata(dest_metadata_path: str, metadata: pd.DataFrame, metadata_fiel
             )
     except Exception as exc:
         raise MetadataWriteError(str(exc))
-
-
-def cast_dtypes(
-        dtype: Union[str, pd.CategoricalDtype],
-        default_value: Any,
-        dataframe_column: str,
-        dataframe: pd.DataFrame
-):
-    """
-    Cast the values of the output metadata. Safety method (each value in `values` is
-    the outcome of `cast_dtype` so it should be of the correct dtype already)
-    """
-    values = dataframe.get(dataframe_column)
-    if isinstance(dtype, str) and values is not None:
-        real_dt = str(getattr(values, 'dtype', ''))
-        if real_dt.startswith(dtype):
-            return values
-
-    if dtype == 'int':
-        if values is not None:
-            return values.astype(dtype)
-        dtype = int
-    elif dtype == 'bool':
-        if values is not None:
-            return values.astype(dtype)
-        dtype = bool
-    elif dtype == 'datetime':
-        if values is not None:
-            return pd.to_datetime(values, errors='coerce')
-        if pd.isna(default_value):
-            default_value = pd.NaT
-        dtype = 'datetime64[ns]'
-    elif dtype == 'str':
-        if values is not None:
-            return values.astype(str)
-        if pd.isna(default_value):
-            default_value = None
-        dtype = str
-    elif dtype == 'float':
-        if values is not None:
-            return values.astype(float)
-        if pd.isna(default_value):
-            default_value = np.nan
-        dtype = float
-    elif isinstance(dtype, pd.CategoricalDtype):
-        if values is not None:
-            cat_values = set(dtype.categories)  # allowed categories
-            invalid = set(values.dropna()) - cat_values  # invalid, non-NA values
-            if invalid:
-                raise AssertionError(
-                    f'Unrecognized categories in {dataframe_column}: {invalid}'
-                )
-            return values.astype(dtype)
-        if pd.isna(default_value):
-            default_value = None
-    else:
-        raise AssertionError(f'Unrecognized dtype {dtype}')
-
-    # column not found, fill with defaults:
-    return pd.Series(
-        np.full(len(dataframe), default_value), index=dataframe.index, dtype=dtype
-    )
 
 
 def save_waveforms(
