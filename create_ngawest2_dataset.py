@@ -4,7 +4,6 @@ heterogeneous sources. For a new dataset, copy rename this or any look-alike mod
 this directory and modify the editable part (see below). More details in README.md
 """
 from __future__ import annotations
-
 import shutil
 import zipfile
 from typing import Optional, Any, Union, Sequence
@@ -15,37 +14,24 @@ import os
 import time
 from os.path import abspath, join, basename, isdir, isfile, dirname, splitext
 import stat
-import yaml
 import re
-import h5py
 import csv
 import json
 import sys
 import fnmatch
-from numpy import ndarray
 from datetime import datetime, timedelta, date
-import pandas as pd
-import numpy as np
 import glob
 from io import BytesIO
 import math
-from tqdm import tqdm
 from dataclasses import dataclass
 
-
-class MetadataWriteError(Exception):
-    """
-    Exception in writing metadata that should be treated specifically (e.g.
-    interrupt the code and skip logging)
-    """
-    pass
-
-
-@dataclass(frozen=True, slots=True)
-class Waveform:
-    """Simple class handling a Waveform (Time History single component)"""
-    dt: float
-    data: ndarray[float]
+# third-party libs (require pip install):
+import yaml
+import h5py
+import pandas as pd
+import numpy as np
+from numpy import ndarray
+from tqdm import tqdm
 
 
 ########################################################################
@@ -332,6 +318,21 @@ def post_process(
 ###########################################
 # The code below should not be customized #
 ###########################################
+
+
+class MetadataWriteError(Exception):
+    """
+    Exception in writing metadata that should be treated specifically (e.g.
+    interrupt the code and skip logging)
+    """
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class Waveform:
+    """Simple class handling a Waveform (Time History single component)"""
+    dt: float
+    data: ndarray[float]
 
 
 def main():  # noqa
