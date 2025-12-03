@@ -140,11 +140,21 @@ def pre_process(metadata: pd.DataFrame, metadata_path: str, files: set[str]) \
     metadata = metadata.drop(columns=cols)
 
     # set the categories for station_id:
-    station_ids = {".".join(basename(f).split('.')[:4])[:-1] for f in files}
-    assert set(metadata['station_id']) & station_ids
+    new_station_ids = {".".join(basename(f).split('.')[:4])[:-1] for f in files}
+    station_ids = set(metadata['station_id'])
+    assert new_station_ids & station_ids
+    station_ids.update(new_station_ids)
+    metadata['station_id'] = metadata['station_id'].astype(
+        pd.CategoricalDtype(categories=station_ids, ordered=True)
+    )
 
-    event_ids = {basename(dirname(f)).removesuffix(".zip") for f in files}
-    assert set(metadata['event_id']) & event_ids
+    new_event_ids = {basename(dirname(f)).removesuffix(".zip") for f in files}
+    event_ids = set(metadata['event_id'])
+    assert event_ids & event_ids
+    event_ids.update(new_event_ids)
+    metadata['event_id'] = metadata['event_id'].astype(str).astype(
+        pd.CategoricalDtype(categories=event_ids, ordered=True)
+    )
 
     metadata['magnitude_type'] = 'Mw'
     mag_missing = metadata['magnitude'].isna()
@@ -209,12 +219,6 @@ def pre_process(metadata: pd.DataFrame, metadata_path: str, files: set[str]) \
     metadata['PGA'] = metadata['PGA'] / 100  # from cm/sec2 to m/sec2
 
     metadata = metadata.set_index(['event_id', 'station_id'], drop=False)
-    metadata['station_id'] = metadata['station_id'].astype(
-        pd.CategoricalDtype(categories=list(station_ids), ordered=True)
-    )
-    metadata['event_id'] = metadata['event_id'].astype(
-        pd.CategoricalDtype(categories=list(event_ids), ordered=True)
-    )
     return metadata
 
 
