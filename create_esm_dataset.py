@@ -216,7 +216,7 @@ def pre_process(metadata: pd.DataFrame, metadata_path: str, files: set[str]) \
 
         metadata = metadata.drop(columns=[ch_code_col, hp_col, lp_col])
 
-    metadata['PGA'] = metadata['PGA'] / 100  # from cm/sec2 to m/sec2
+    metadata['PGA'] = abs(metadata['PGA']) / 100  # from cm/sec2 to m/sec2
 
     metadata = metadata.set_index(['event_id', 'station_id'], drop=False)
     return metadata
@@ -241,7 +241,7 @@ def find_sources(file_path: str, metadata: pd.DataFrame) \
     file_suffix = basename(file_path).removeprefix(sta_id)
     orientation = sta_id[-1]
     sta_id = sta_id[:-1]
-    if orientation in {'N', 'E', 'Z'}:
+    if orientation in {'N', 'E', 'Z'}:  # we ignore  '1', '2', '3' for the moment
         try:
             meta = metadata.loc[(ev_id, sta_id)]
         except KeyError:
@@ -277,6 +277,8 @@ def read_waveform(file_path: str, content: BytesIO, metadata: pd.Series) -> Wave
     factor = None
     dt = None
     pos = 0
+    metadata_tmp = {}
+    comp_idx = None
     for line in content:
         pos = content.tell()  # remember current position
         line = line.strip()
@@ -295,10 +297,18 @@ def read_waveform(file_path: str, content: BytesIO, metadata: pd.Series) -> Wave
                 factor = 9.80665
         elif key == 'SAMPLING_INTERVAL_S':
             dt = float(val)
+        elif key == 'STREAM':
+            comp_idx = {'N': 0, 'E': 1, 'Z': 2}[val[2]]
 
-        if 'DATA_CITATION' in key or 'DATA_CREATOR' in key or 'DATA_MEDIATOR' in key:
+        if ('DATA_CITATION' in key or 'DATA_CREATOR' in key or 'DATA_MEDIATOR' in key or
+                '_REFERENCE' in key):
             continue
-        metadata[f'.{key}'] = val
+        metadata_tmp[key] = val
+
+    for key, val in metadata_tmp.items():
+        # next line is kinds dict.setdefault:
+        metadata.loc[f'.{key}'] = metadata.get(f'.{key}', [None, None, None])
+        metadata.loc[f'.{key}'][comp_idx] = val
 
     assert dt is not None, 'dt not found in file'
 
@@ -337,9 +347,9 @@ def post_process(
     :param h2: the Waveform of the second horizontal component, or None (waveform N/A)
     :param v: the Waveform of the vertical component, or None (waveform N/A)
     """
-    # metadata contains also the entries below (PREFIXED WITH A DOT to avoid conflicts)
-    # stored in the data file, EXCEPT the entries whose keys contain either
-    # DATA_CITATION, DATA_CREATOR, DATA_MEDIATOR (verbose and unnecessary):
+    # metadata also contains *most* of the fields below (read from each waveform file,
+    # see `read_waveform`) prefixed with a dot to avoid conflicts. Each field is mapped
+    # to a list of strings or None corresponding to the [h1, h2, v] components.
 
     # EVENT_NAME: None
     # EVENT_ID: TK-2000-0449
@@ -405,101 +415,127 @@ def post_process(
     is_na = pd.isna
 
     if is_na(metadata.get('event_id')):
-        metadata['event_id'] = metadata[".EVENT_ID"]
+        assert len(set(metadata.get(".EVENT_ID", []))) == 1, 'No unique event id in file'
+        metadata['event_id'] = metadata[".EVENT_ID"][0]
 
     # process remaining data:
     if is_na(metadata.get('station_id')):
-        metadata['station_id'] = ".".join([
-            metadata['.NETWORK'],
-            metadata['.STATION_CODE'],
-            metadata['.LOCATION'],
-            metadata['.INSTRUMENT']
-        ])
+        new_id = []
+        for key in ['.NETWORK', '.STATION_CODE', '.LOCATION', '.INSTRUMENT']:
+            vals = metadata.get(key, [])
+            assert len(set(vals)) == 1, f'No unique {key} in file'
+            new_id.append(vals[0])
+        metadata['station_id'] = ".".join(new_id)
 
     if 'filter_type' not in metadata:
-        if metadata['.FILTER_TYPE'] == 'BUTTERWORTH':
-            metadata['filter_type'] = 'A'
-            metadata['filter_order'] = int(metadata['.FILTER_ORDER'] or 0)
+        file_filt_types = metadata.get('.FILTER_TYPE', [])
+        if len(set(file_filt_types)) == 1:
+            file_filt_type = file_filt_types[0]
+            if file_filt_type == 'BUTTERWORTH':
+                metadata['filter_type'] = 'A'
+                filter_order = 0
+                filter_orders = metadata.get('.FILTER_ORDER', [])
+                if len(set(filter_orders)) == 1:
+                    filter_order = int(filter_orders[0])
+                metadata['filter_order'] = filter_order
 
-    low_cutoff = metadata.get('.LOW_CUT_FREQUENCY_HZ')
-    high_cutoff = metadata.get('.HIGH_CUT_FREQUENCY_HZ')
-    if metadata['.STREAM'][2] == 'N':
-        if is_na(metadata['lower_cutoff_frequency_h1']) and not_na(low_cutoff):
-            metadata['lower_cutoff_frequency_h1'] = low_cutoff
-            metadata['lowest_usable_frequency_h1'] = low_cutoff
-        if is_na(metadata['upper_cutoff_frequency_h1']) and not_na(high_cutoff):
-            metadata['upper_cutoff_frequency_h1'] = high_cutoff
-    if metadata['.STREAM'][2] == 'E':
-        if is_na(metadata['lower_cutoff_frequency_h2']) and not_na(low_cutoff):
-            metadata['lower_cutoff_frequency_h2'] = low_cutoff
-            metadata['lowest_usable_frequency_h2'] = low_cutoff
-        if is_na(metadata['upper_cutoff_frequency_h2']) and not_na(high_cutoff):
-            metadata['upper_cutoff_frequency_h2'] = high_cutoff
+    low_cutoff1 = metadata.get('.LOW_CUT_FREQUENCY_HZ', [None])[0]  # N component
+    high_cutoff1 = metadata.get('.HIGH_CUT_FREQUENCY_HZ', [None])[0]  # N component
+    if is_na(metadata['lower_cutoff_frequency_h1']) and not_na(low_cutoff1):
+        metadata['lower_cutoff_frequency_h1'] = low_cutoff1
+        metadata['lowest_usable_frequency_h1'] = low_cutoff1
+    if is_na(metadata['upper_cutoff_frequency_h1']) and not_na(high_cutoff1):
+        metadata['upper_cutoff_frequency_h1'] = high_cutoff1
+
+    low_cutoff2 = metadata.get('.LOW_CUT_FREQUENCY_HZ', [None])[1]  # E component
+    high_cutoff2 = metadata.get('.HIGH_CUT_FREQUENCY_HZ', [None])[1]  # E component
+    if is_na(metadata['lower_cutoff_frequency_h2']) and not_na(low_cutoff2):
+        metadata['lower_cutoff_frequency_h2'] = low_cutoff2
+        metadata['lowest_usable_frequency_h2'] = low_cutoff2
+    if is_na(metadata['upper_cutoff_frequency_h2']) and not_na(high_cutoff2):
+        metadata['upper_cutoff_frequency_h2'] = high_cutoff2
 
     if is_na(metadata.get('magnitude')):
-        if not_na(metadata.get('.MAGNITUDE_W')):
-            metadata['magnitude'] = metadata['.MAGNITUDE_W']
-            metadata['magnitude_type'] = 'Mw'
-        elif not_na(metadata.get('.MAGNITUDE_L')):
-            metadata['magnitude'] = metadata['.MAGNITUDE_L']
-            metadata['magnitude_type'] = 'ML'
+        for mag_type, file_mag_label in [('Mw', '.MAGNITUDE_W'), ('ML', '.MAGNITUDE_L')]:
+            file_mags = metadata.get(file_mag_label, [])
+            if len(set(file_mags)) == 1:
+                file_mag = file_mags[0]
+                if not_na(file_mag):
+                    metadata['magnitude'] = float(file_mag)
+                    metadata['magnitude_type'] = mag_type
+                    break
 
-    if 'fault_type' not in metadata and metadata.get('.FOCAL_MECHANISM'):
-        foc_mec = metadata['.FOCAL_MECHANISM'].strip().\
-            removesuffix(' faulting').strip().lower()
-        if foc_mec != 'unknown':
-            if foc_mec == 'thrust':
-                foc_mec = 'reverse'
-            # check lower case and other stuff:
-            for def_foc_mec in ['Strike-Slip', 'Normal', 'Reverse', 'Reverse-Oblique', 'Normal-Oblique']:
-                if foc_mec == def_foc_mec.lower():
-                    metadata['fault_type'] = def_foc_mec
+    if is_na(metadata.get('fault_type')):
+        file_foc_mecs = metadata.get('.FOCAL_MECHANISM', [])
+        if len(set(file_foc_mecs)) == 1:
+            file_foc_mec = file_foc_mecs[0]
+            file_foc_mec = file_foc_mec.strip().removesuffix(' faulting').strip().lower()
+            if file_foc_mec != 'unknown':
+                if file_foc_mec == 'thrust':
+                    file_foc_mec = 'reverse'
+                # check lower case and other stuff:
+                for def_foc_mec in [
+                    'Strike-Slip',
+                    'Normal',
+                    'Reverse',
+                    'Reverse-Oblique',
+                    'Normal-Oblique'
+                ]:
+                    if file_foc_mec == def_foc_mec.lower():
+                        metadata['fault_type'] = def_foc_mec
 
-    if is_na(metadata.get('start_time')) and \
-            not_na(metadata.get('.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS')) and \
-            len(metadata.get('.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS').strip()):
-        for fmt in ("%Y%m%d_%H%M%S.%f", "%Y%m%d_%H%M%S"):
-            try:
-                metadata['start_time'] = datetime.strptime(
-                    metadata['.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS'],
-                    fmt
-                )
-                break
-            except ValueError:
-                continue
-        else:
-            raise ValueError(f"Cannot parse start_time from waveform file: "
-                             f"{metadata['.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS']}")
+    if is_na(metadata.get('start_time')):
+        file_st_times = metadata.get('.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS', [])
+        if len(set(file_st_times)) == 1:
+            file_st_time = file_st_times[0]
+            if not_na(file_st_time) and len(file_st_time.strip()):
+                for fmt in ("%Y%m%d_%H%M%S.%f", "%Y%m%d_%H%M%S"):
+                    try:
+                        metadata['start_time'] = datetime.strptime(file_st_time, fmt)
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    raise ValueError(
+                        f"Cannot parse start_time from waveform file: "
+                        f"{metadata['.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS']}"
+                    )
 
-    if is_na(metadata.get('PGA')) and metadata.get('.PGA_CM/S^2'):
-        metadata['PGA'] = float(metadata['.PGA_CM/S^2']) / 100
+    if is_na(metadata.get('PGA')):
+        file_pgas = metadata.get('.PGA_CM/S^2', [])
+        if len(file_pgas) == 3:
+            metadata['PGA'] = np.sqrt(np.abs(file_pgas[0]) * np.abs(file_pgas[1])) / 100
 
-    if is_na(metadata.get('origin_time')) and metadata.get('.EVENT_DATE_YYYYMMDD'):
-        date = metadata['.EVENT_DATE_YYYYMMDD']
-        year = int(date[:4])
-        month = int(date[4:6])
-        day = int(date[6:])
-        hour, minute, second = 0, 0, 0
-        metadata['origin_time_resolution'] = 'D'
-        if metadata.get('.EVENT_TIME_HHMMSS'):
-            dtime = metadata['.EVENT_TIME_HHMMSS']
-            hour = int(dtime[:2])
-            minute = int(dtime[2:4])
-            second = int(dtime[4:6])
-            metadata['origin_time_resolution'] = 's'
-        metadata['origin_time'] = datetime(
-            year=year,
-            month=month,
-            day=day,
-            hour=hour,
-            minute=minute,
-            second=second,
-            microsecond=0
-        )
+    if is_na(metadata.get('origin_time')):
+        event_dates = metadata.get('.EVENT_DATE_YYYYMMDD', [])
+        if len(set(event_dates)) == 1:
+            event_date = event_dates[0]
+            year = int(event_date[:4])
+            month = int(event_date[4:6])
+            day = int(event_date[6:])
+            hour, minute, second = 0, 0, 0
+            metadata['origin_time_resolution'] = 'D'
+            event_times = metadata.get('.EVENT_TIME_HHMMSS', [])
+            if len(set(event_times)) == 1:
+                event_time = event_times[0]
+                hour = int(event_time[:2])
+                minute = int(event_time[2:4])
+                second = int(event_time[4:6])
+                metadata['origin_time_resolution'] = 's'
+            metadata['origin_time'] = datetime(
+                year=year,
+                month=month,
+                day=day,
+                hour=hour,
+                minute=minute,
+                second=second,
+                microsecond=0
+            )
 
-    s_time = metadata.get(".DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS")
-    if is_na(metadata.get('start_time')) and s_time:
-        metadata['start_time'] = datetime.strptime(s_time, "%Y%m%d_%H%M%S")
+    if is_na(metadata.get('start_time')):
+        s_times = metadata.get(".DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS", [])
+        if len(set(s_times)) == 1:
+            metadata['start_time'] = datetime.strptime( s_times[0], "%Y%m%d_%H%M%S")
 
     # set float elements:
     for key, new_key in {
@@ -516,20 +552,24 @@ def post_process(
         'EPICENTRAL_DISTANCE_KM': 'epicentral_distance',
         # 'DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS': 'start_time',
     }.items():
-        if is_na(metadata.get(new_key)) and metadata.get(f".{key}"):
-            metadata[new_key] = float(metadata[f".{key}"])
+        if is_na(metadata.get(new_key)):
+            values = metadata.get(f".{key}", [])
+            if len(set(values)) == 1:
+                metadata[new_key] = float(values[0])
 
-    if is_na(metadata.get('vs30')) and not_na(metadata.get('.SITE_CLASSIFICATION_EC8')):
-        val = {
-            "A": 900,
-            "B": 580,
-            "C": 270,
-            "D": 150,
-            "E": 100
-        }.get(metadata['.SITE_CLASSIFICATION_EC8'])
-        if not_na(val):
-            metadata['vs30'] = val
-            metadata['vs30measured'] = False
+    if is_na(metadata.get('vs30')):
+        file_ec8_classes = metadata.get('.SITE_CLASSIFICATION_EC8', [])
+        if len(set(file_ec8_classes)) == 1:
+            val = {
+                "A": 900,
+                "B": 580,
+                "C": 270,
+                "D": 150,
+                "E": 100
+            }.get(file_ec8_classes[0])
+            if not_na(val):
+                metadata['vs30'] = val
+                metadata['vs30measured'] = False
 
     if not_na(metadata.get('epicentral_distance')) and \
             not_na(metadata.get('event_depth')) and \
