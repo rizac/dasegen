@@ -274,6 +274,8 @@ def read_waveform(file_path: str, content: BytesIO, metadata: pd.Series) -> Wave
 
     :return: a `Waveform` object
     """
+    if 'SL.ILBA..HGZ.D.EMSC-20140313_0000055.ACC.MP.ASC' in file_path:
+        asd = 9
     factor = None
     dt = None
     pos = 0
@@ -414,6 +416,52 @@ def post_process(
     not_na = pd.notna
     is_na = pd.isna
 
+    # first extract the stuff that is component dependent:
+    file_cutoff_freqs = {}
+    try:
+        freq_h1, freq_h2, _ = np.array(metadata.get(
+            '.LOW_CUT_FREQUENCY_HZ', [np.nan, np.nan, np.nan]
+        ), dtype=float)
+    except (ValueError, TypeError, IndexError):
+        freq_h1, freq_h2 = np.nan, np.nan
+    file_cutoff_freqs['lower_cutoff_frequency_h1'] = freq_h1
+    file_cutoff_freqs['lowest_usable_frequency_h1'] = freq_h1
+    file_cutoff_freqs['lower_cutoff_frequency_h2'] = freq_h2
+    file_cutoff_freqs['lowest_usable_frequency_h2'] = freq_h2
+    try:
+        freq_h1, freq_h2, _ = np.array(metadata.get(
+            '.HIGH_CUT_FREQUENCY_HZ', [np.nan, np.nan, np.nan]
+        ), dtype =float)
+    except (ValueError, TypeError, IndexError):
+        freq_h1, freq_h2 = np.nan, np.nan
+    file_cutoff_freqs['upper_cutoff_frequency_h1'] = freq_h1
+    file_cutoff_freqs['upper_cutoff_frequency_h2'] = freq_h2
+
+    try:
+        pga1, pga2, pga3 = np.array(metadata.get(
+            '.PGA_CM/S^2', [np.nan, np.nan, np.nan]
+        ), dtype=float)
+    except (ValueError, TypeError, IndexError):
+        pga1, pga2, pga3 = np.nan, np.nan, np.nan
+    if not_na(pga1) and not_na(pga2):
+        pga = np.sqrt(np.abs(pga1) * np.abs(pga2)) / 100
+    elif not_na(pga3):
+        pga = np.abs(pga3) / 100
+    else:
+        pga = np.nan
+    # first thing: prune file metadata that are None because we do not have the
+    # corresponding component. So if metadata['SOME_KEY'] is [None, None, 'a'] and
+    # we do not have horizontal components, set it to ['a']. This is needed cause we
+    # can then check the uniqueness of ['a'] here below
+    nones = [h1 is None, h2 is None, v is None]
+    if any(nones):
+        for key in metadata.keys():
+            if key.startswith('.'):
+                vals = metadata[key]
+                if isinstance(vals, list):
+                    new_vals = [v for v, rm in zip(vals, nones) if not rm]
+                    metadata[key] = new_vals
+
     if is_na(metadata.get('event_id')):
         assert len(set(metadata.get(".EVENT_ID", []))) == 1, 'No unique event id in file'
         metadata['event_id'] = metadata[".EVENT_ID"][0]
@@ -439,21 +487,9 @@ def post_process(
                     filter_order = int(filter_orders[0])
                 metadata['filter_order'] = filter_order
 
-    low_cutoff1 = metadata.get('.LOW_CUT_FREQUENCY_HZ', [None])[0]  # N component
-    high_cutoff1 = metadata.get('.HIGH_CUT_FREQUENCY_HZ', [None])[0]  # N component
-    if is_na(metadata['lower_cutoff_frequency_h1']) and not_na(low_cutoff1):
-        metadata['lower_cutoff_frequency_h1'] = low_cutoff1
-        metadata['lowest_usable_frequency_h1'] = low_cutoff1
-    if is_na(metadata['upper_cutoff_frequency_h1']) and not_na(high_cutoff1):
-        metadata['upper_cutoff_frequency_h1'] = high_cutoff1
-
-    low_cutoff2 = metadata.get('.LOW_CUT_FREQUENCY_HZ', [None])[1]  # E component
-    high_cutoff2 = metadata.get('.HIGH_CUT_FREQUENCY_HZ', [None])[1]  # E component
-    if is_na(metadata['lower_cutoff_frequency_h2']) and not_na(low_cutoff2):
-        metadata['lower_cutoff_frequency_h2'] = low_cutoff2
-        metadata['lowest_usable_frequency_h2'] = low_cutoff2
-    if is_na(metadata['upper_cutoff_frequency_h2']) and not_na(high_cutoff2):
-        metadata['upper_cutoff_frequency_h2'] = high_cutoff2
+    for key, val in file_cutoff_freqs.items():
+        if is_na(metadata.get(key)) and not_na(val):
+            metadata[key] = val
 
     if is_na(metadata.get('magnitude')):
         for mag_type, file_mag_label in [('Mw', '.MAGNITUDE_W'), ('ML', '.MAGNITUDE_L')]:
@@ -461,9 +497,12 @@ def post_process(
             if len(set(file_mags)) == 1:
                 file_mag = file_mags[0]
                 if not_na(file_mag):
-                    metadata['magnitude'] = float(file_mag)
-                    metadata['magnitude_type'] = mag_type
-                    break
+                    try:
+                        metadata['magnitude'] = float(file_mag)
+                        metadata['magnitude_type'] = mag_type
+                        break
+                    except ValueError:
+                        pass
 
     if is_na(metadata.get('fault_type')):
         file_foc_mecs = metadata.get('.FOCAL_MECHANISM', [])
@@ -501,10 +540,8 @@ def post_process(
                         f"{metadata['.DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS']}"
                     )
 
-    if is_na(metadata.get('PGA')):
-        file_pgas = metadata.get('.PGA_CM/S^2', [])
-        if len(file_pgas) == 3:
-            metadata['PGA'] = np.sqrt(np.abs(file_pgas[0]) * np.abs(file_pgas[1])) / 100
+    if is_na(metadata.get('PGA')) and not_na(pga):
+        metadata['PGA'] = pga
 
     if is_na(metadata.get('origin_time')):
         event_dates = metadata.get('.EVENT_DATE_YYYYMMDD', [])
@@ -555,18 +592,25 @@ def post_process(
         if is_na(metadata.get(new_key)):
             values = metadata.get(f".{key}", [])
             if len(set(values)) == 1:
-                metadata[new_key] = float(values[0])
+                try:
+                    metadata[new_key] = float(values[0])
+                except ValueError:
+                    pass
 
     if is_na(metadata.get('vs30')):
         file_ec8_classes = metadata.get('.SITE_CLASSIFICATION_EC8', [])
         if len(set(file_ec8_classes)) == 1:
+            file_ec8_class = file_ec8_classes[0]
+            idx2remove = file_ec8_class.find(' (inferred ')
+            if idx2remove > -1:
+                file_ec8_class = file_ec8_class[:idx2remove]
             val = {
                 "A": 900,
                 "B": 580,
                 "C": 270,
                 "D": 150,
                 "E": 100
-            }.get(file_ec8_classes[0])
+            }.get(file_ec8_class)
             if not_na(val):
                 metadata['vs30'] = val
                 metadata['vs30measured'] = False
@@ -777,7 +821,7 @@ def main():  # noqa
                     raise AssertionError(f'Invalid value for "{f}": {str(val)}')
 
             # final checks:
-            check_final_metadata(clean_record, h1, h2)
+            check_final_metadata(clean_record, h1, h2, v)
 
             # save waveforms
             file_path = join(dest_waveforms_path, get_file_path(clean_record))
@@ -975,8 +1019,12 @@ def get_file_path(metadata: dict):
     )
 
 
-def check_final_metadata(metadata: dict, h1: Optional[Waveform], h2: Optional[Waveform]):
-
+def check_final_metadata(
+        metadata: dict,
+        h1: Optional[Waveform],
+        h2: Optional[Waveform],
+        v: Optional[Waveform]
+):
     pga = metadata['PGA']
     pga_c = None
     if h1 is not None and h2 is not None:
@@ -985,6 +1033,8 @@ def check_final_metadata(metadata: dict, h1: Optional[Waveform], h2: Optional[Wa
         pga_c = np.max(np.abs(h1.data))
     elif h1 is None and h2 is not None:
         pga_c = np.max(np.abs(h2.data))
+    else:
+        pga_c = np.max(np.abs(v.data))
     if pga_c is not None:
         rtol = pga_retol
         assert np.isclose(pga_c, pga, rtol=rtol, atol=0), \

@@ -513,7 +513,7 @@ def main():  # noqa
                     raise AssertionError(f'Invalid value for "{f}": {str(val)}')
 
             # final checks:
-            check_final_metadata(clean_record, h1, h2)
+            check_final_metadata(clean_record, h1, h2, v)
 
             # save waveforms
             file_path = join(dest_waveforms_path, get_file_path(clean_record))
@@ -711,8 +711,12 @@ def get_file_path(metadata: dict):
     )
 
 
-def check_final_metadata(metadata: dict, h1: Optional[Waveform], h2: Optional[Waveform]):
-
+def check_final_metadata(
+        metadata: dict,
+        h1: Optional[Waveform],
+        h2: Optional[Waveform],
+        v: Optional[Waveform]
+):
     pga = metadata['PGA']
     pga_c = None
     if h1 is not None and h2 is not None:
@@ -721,6 +725,8 @@ def check_final_metadata(metadata: dict, h1: Optional[Waveform], h2: Optional[Wa
         pga_c = np.max(np.abs(h1.data))
     elif h1 is None and h2 is not None:
         pga_c = np.max(np.abs(h2.data))
+    else:
+        pga_c = np.max(np.abs(v.data))
     if pga_c is not None:
         rtol = pga_retol
         assert np.isclose(pga_c, pga, rtol=rtol, atol=0), \
